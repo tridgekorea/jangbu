@@ -292,42 +292,61 @@ async function classifyBatch(items, apiKey){
   const expenseItems = items.filter(i => i.kind === "expense");
   const incomeItems = items.filter(i => i.kind === "income");
   const results = {};
-  const CHUNK = 25;
+  const failedIds = new Set();
+  const CHUNK = 15;
+
+  function extractJsonArray(text){
+    const clean = text.replace(/```json|```/g, "").trim();
+    const start = clean.indexOf("[");
+    const end = clean.lastIndexOf("]");
+    if (start === -1 || end === -1 || end < start) throw new Error("응답에서 JSON 배열을 찾지 못함");
+    return JSON.parse(clean.slice(start, end + 1));
+  }
+
+  async function callOnce(batch, kind){
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true",
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-5",
+        max_tokens: 2048,
+        messages: [{ role: "user", content: buildClassifyPrompt(batch, kind) }],
+      }),
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error.message || "API 오류");
+    const text = (data.content || []).filter(c => c.type === "text").map(c => c.text).join("\n");
+    return extractJsonArray(text);
+  }
 
   async function runChunks(list, kind){
     for (let i = 0; i < list.length; i += CHUNK) {
       const batch = list.slice(i, i + CHUNK);
       if (batch.length === 0) continue;
-      try {
-        const res = await fetch("https://api.anthropic.com/v1/messages", {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            "x-api-key": apiKey,
-            "anthropic-version": "2023-06-01",
-            "anthropic-dangerous-direct-browser-access": "true",
-          },
-          body: JSON.stringify({
-            model: "claude-sonnet-5",
-            max_tokens: 1024,
-            messages: [{ role: "user", content: buildClassifyPrompt(batch, kind) }],
-          }),
-        });
-        const data = await res.json();
-        if (data.error) throw new Error(data.error.message || "API 오류");
-        const text = (data.content || []).filter(c => c.type === "text").map(c => c.text).join("\n");
-        const clean = text.replace(/```json|```/g, "").trim();
-        const arr = JSON.parse(clean);
+      let arr = null;
+      for (let attempt = 0; attempt < 2 && !arr; attempt++) {
+        try { arr = await callOnce(batch, kind); }
+        catch (e) { console.error(`분류 시도 ${attempt + 1}/2 실패`, e); }
+      }
+      if (arr) {
         arr.forEach(entry => { results[entry.id] = entry.category; });
-      } catch (e) {
-        console.error("분류 실패, 해당 배치는 기타로 처리", e);
-        batch.forEach(b => { results[b._rowId] = kind === "income" ? "etcin" : "etc"; });
+        batch.forEach(b => { if (!(b._rowId in results)) failedIds.add(b._rowId); });
+      } else {
+        batch.forEach(b => {
+          results[b._rowId] = kind === "income" ? "etcin" : "etc";
+          failedIds.add(b._rowId);
+        });
       }
     }
   }
   await runChunks(expenseItems, "expense");
   await runChunks(incomeItems, "income");
-  return results;
+  return { results, failedIds };
 }
 
 /* ============================================================
@@ -509,8 +528,8 @@ function renderUploadModal(){
     <label class="drop-zone" id="drop-zone">
       <div style="font-size:26px;">📤</div>
       <div style="font-size:13.5px;margin-top:10px;color:var(--ink);font-weight:600;">클릭하거나 파일을 여기로 끌어다 놓으세요</div>
-      <div style="font-size:11.5px;color:var(--ink-faint);margin-top:4px;">은행/카드사에서 내려받은 xlsx, xls, csv 지원</div>
-      <input id="upload-file-input" type="file" accept=".xlsx,.xls,.csv" style="display:none;">
+      <div style="font-size:11.5px;color:var(--ink-faint);margin-top:4px;">은행/카드사 거래내역 파일 (xlsx, xls, csv, html) 지원</div>
+      <input id="upload-file-input" type="file" accept=".xlsx,.xls,.csv,.html,.htm" style="display:none;">
     </label>
     ${!state.apiKey ? `<div class="upload-warn">⚠️ API 키가 없어요. 지금 업로드하면 전부 "기타"로 분류돼요. <button class="link-btn" data-action="close-upload-open-settings">키 등록하기</button></div>` : ""}
     `;
@@ -531,12 +550,17 @@ function renderUploadModal(){
     const includedCount = u.rows.filter(r => r.include).length;
     const totalExpense = u.rows.filter(r => r.include && r.kind === "expense").reduce((s, r) => s + r.amount, 0);
     const totalIncome = u.rows.filter(r => r.include && r.kind === "income").reduce((s, r) => s + r.amount, 0);
+    const failedCount = u.rows.filter(r => r.failed).length;
     inner = `
     ${u.warn ? `<div class="upload-warn">⚠️ ${esc(u.warn)}</div>` : ""}
-    <div style="display:flex;gap:10px;margin-bottom:12px;font-size:12.5px;color:var(--ink-faint);flex-wrap:wrap;">
+    <div style="display:flex;gap:10px;margin-bottom:12px;font-size:12.5px;color:var(--ink-faint);flex-wrap:wrap;align-items:center;">
       <span>✅ ${includedCount}건 선택됨</span>
       <span class="mono">지출 ${fmt(totalExpense)}원</span>
       <span class="mono" style="color:var(--income)">수입 ${fmt(totalIncome)}원</span>
+      ${failedCount > 0 ? `
+        <span class="mono" style="color:var(--stamp)">⚠️ 분류 실패 ${failedCount}건</span>
+        <button class="link-btn" data-action="reclassify-upload">🔁 다시 분류하기</button>
+      ` : ""}
     </div>
     <div style="overflow-y:auto;flex:1;border:1px solid var(--paper-line);border-radius:8px;">
       <table class="review-table">
@@ -549,7 +573,10 @@ function renderUploadModal(){
               <td class="mono" style="white-space:nowrap;">${r.date}</td>
               <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(r.desc)}</td>
               <td class="mono" style="text-align:right;">${r.kind === "income" ? "+" : "-"}${fmt(r.amount)}</td>
-              <td><select class="review-cat-select" data-rowid="${r._rowId}">${cats.map(c => `<option value="${c.id}" ${r.category === c.id ? "selected" : ""}>${c.emoji} ${esc(c.label)}</option>`).join("")}</select></td>
+              <td>
+                ${r.failed ? `<span title="자동분류 실패" style="margin-right:3px;">⚠️</span>` : ""}
+                <select class="review-cat-select" data-rowid="${r._rowId}" style="${r.failed ? "border-color:var(--stamp);" : ""}">${cats.map(c => `<option value="${c.id}" ${r.category === c.id ? "selected" : ""}>${c.emoji} ${esc(c.label)}</option>`).join("")}</select>
+              </td>
             </tr>`;
           }).join("")}
         </tbody>
@@ -562,7 +589,7 @@ function renderUploadModal(){
   <div class="modal-overlay" data-action="close-upload">
     <div class="modal" style="width:${u.stage === "review" ? "640px" : "400px"};max-height:85vh;display:flex;flex-direction:column;" data-action="noop">
       <div class="modal-header">
-        <div class="serif" style="font-size:17px;font-weight:700;display:flex;align-items:center;gap:7px;">📊 엑셀로 불러오기</div>
+        <div class="serif" style="font-size:17px;font-weight:700;display:flex;align-items:center;gap:7px;">📁 파일 불러오기</div>
         <button class="icon-btn" data-action="close-upload">✕</button>
       </div>
       ${inner}
@@ -625,7 +652,7 @@ function renderHeader(){
       <button class="icon-btn-outline" data-action="toggle-settings" title="API 키 설정" style="position:relative;">
         ⚙️<span style="position:absolute;top:1px;right:1px;width:7px;height:7px;border-radius:50%;background:${dotColor};border:1.5px solid #fff;"></span>
       </button>
-      <button class="upload-btn" data-action="open-upload">📤 엑셀로 불러오기</button>
+      <button class="upload-btn" data-action="open-upload">📁 파일 불러오기</button>
       <button class="add-btn" data-action="open-add">＋ 기록하기</button>
     </div>
   </header>`;
@@ -661,14 +688,21 @@ async function handleFile(file){
       state.upload.stage = "error"; render(); return;
     }
     if (!state.apiKey) {
-      state.upload.rows = parsed.map(r => ({ ...r, category: r.kind === "income" ? "etcin" : "etc" }));
-      state.upload.warn = "API 키가 없어 전체를 '기타'로 분류했어요. 아래에서 하나씩 바꾸거나, 설정에서 API 키를 등록한 뒤 다시 시도해보세요.";
+      state.upload.rows = parsed.map(r => ({ ...r, category: r.kind === "income" ? "etcin" : "etc", failed: true }));
+      state.upload.warn = "API 키가 없어 전체를 '기타'로 분류했어요. 아래에서 하나씩 바꾸거나, 설정에서 API 키를 등록한 뒤 '다시 분류하기'를 눌러보세요.";
       state.upload.stage = "review"; render(); return;
     }
     state.upload.rows = parsed;
     state.upload.stage = "classifying"; render();
-    const catMap = await classifyBatch(parsed, state.apiKey);
-    state.upload.rows = parsed.map(r => ({ ...r, category: catMap[r._rowId] || (r.kind === "income" ? "etcin" : "etc") }));
+    const { results: catMap, failedIds } = await classifyBatch(parsed, state.apiKey);
+    state.upload.rows = parsed.map(r => ({
+      ...r,
+      category: catMap[r._rowId] || (r.kind === "income" ? "etcin" : "etc"),
+      failed: failedIds.has(r._rowId),
+    }));
+    state.upload.warn = failedIds.size > 0
+      ? `${failedIds.size}건은 AI 분류 중 오류가 나서 '기타'로 남았어요. 아래 표에서 ⚠️ 표시된 항목을 확인하거나 '다시 분류하기'를 눌러주세요.`
+      : "";
     state.upload.stage = "review"; render();
   } catch (e) {
     console.error(e);
@@ -715,6 +749,25 @@ function onClick(e){
     case "open-upload": state.upload = { stage: "select", rows: [], fileName: "", errorMsg: "", warn: "" }; state.showUpload = true; render(); break;
     case "close-upload": state.showUpload = false; render(); break;
     case "retry-upload": state.upload.stage = "select"; render(); break;
+    case "reclassify-upload": {
+      if (!state.apiKey) { alert("먼저 설정에서 API 키를 등록해주세요."); return; }
+      const targetRows = state.upload.rows;
+      state.upload.stage = "classifying";
+      render();
+      classifyBatch(targetRows, state.apiKey).then(({ results, failedIds }) => {
+        state.upload.rows = state.upload.rows.map(r => ({
+          ...r,
+          category: results[r._rowId] || r.category,
+          failed: failedIds.has(r._rowId),
+        }));
+        state.upload.warn = failedIds.size > 0
+          ? `${failedIds.size}건은 이번에도 분류에 실패했어요. 직접 카테고리를 선택해주세요.`
+          : "";
+        state.upload.stage = "review";
+        render();
+      });
+      break;
+    }
     case "confirm-import": {
       const list = state.upload.rows.filter(r => r.include).map(r => ({ id: uid(), date: r.date, amount: r.amount, kind: r.kind, category: r.category, memo: r.desc }));
       state.transactions = [...list, ...state.transactions];
