@@ -441,7 +441,7 @@ function renderAddModal(){
   const cats = f.kind === "expense" ? EXPENSE_CATS : INCOME_CATS;
   return `
   <div class="modal-overlay" data-action="close-add">
-    <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal" data-action="noop">
       <div class="modal-header">
         <div class="serif" style="font-size:17px;font-weight:700;">새 기록</div>
         <button class="icon-btn" data-action="close-add">✕</button>
@@ -522,7 +522,7 @@ function renderUploadModal(){
   }
   return `
   <div class="modal-overlay" data-action="close-upload">
-    <div class="modal" style="width:${u.stage === "review" ? "640px" : "400px"};max-height:85vh;display:flex;flex-direction:column;" onclick="event.stopPropagation()">
+    <div class="modal" style="width:${u.stage === "review" ? "640px" : "400px"};max-height:85vh;display:flex;flex-direction:column;" data-action="noop">
       <div class="modal-header">
         <div class="serif" style="font-size:17px;font-weight:700;display:flex;align-items:center;gap:7px;">📊 엑셀로 불러오기</div>
         <button class="icon-btn" data-action="close-upload">✕</button>
@@ -537,7 +537,7 @@ function renderSettingsModal(){
   const masked = state.apiKey ? state.apiKey.slice(0, 7) + "••••••••••••" + state.apiKey.slice(-4) : "";
   return `
   <div class="modal-overlay" data-action="close-settings">
-    <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal" data-action="noop">
       <div class="modal-header">
         <div class="serif" style="font-size:17px;font-weight:700;">⚙️ API 키 설정</div>
         <button class="icon-btn" data-action="close-settings">✕</button>
