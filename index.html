@@ -23,16 +23,16 @@
   ::-webkit-scrollbar{ width:8px; }
   ::-webkit-scrollbar-thumb{ background:var(--paper-line); border-radius:4px; }
 
-  .wrap{ display:flex; max-width:1040px; margin:0 auto; min-height:640px; background:var(--paper); border-radius:14px; overflow:hidden; box-shadow:0 1px 0 rgba(43,42,30,0.06), 0 8px 24px -12px rgba(22,40,31,0.35); font-size:14px; }
-  .cover{ width:210px; flex-shrink:0; background:linear-gradient(160deg, var(--cover), var(--cover-deep)); color:#EFF3EC; padding:26px 18px; display:flex; flex-direction:column; justify-content:space-between; }
+  .wrap{ display:flex; align-items:flex-start; max-width:1040px; margin:0 auto; min-height:640px; background:var(--paper); border-radius:14px; box-shadow:0 1px 0 rgba(43,42,30,0.06), 0 8px 24px -12px rgba(22,40,31,0.35); font-size:14px; }
+  .cover{ width:210px; flex-shrink:0; background:linear-gradient(160deg, var(--cover), var(--cover-deep)); color:#EFF3EC; padding:26px 18px; display:flex; flex-direction:column; border-radius:14px 0 0 14px; position:sticky; top:24px; max-height:calc(100vh - 48px); overflow-y:auto; }
   .cover-title{ font-size:21px; font-weight:700; letter-spacing:0.3px; }
   .cover-sub{ font-size:12px; opacity:0.65; margin-top:4px; }
-  .cover-foot{ font-size:11px; opacity:0.55; line-height:1.5; }
+  .cover-foot{ font-size:11px; opacity:0.55; line-height:1.5; margin-top:24px; }
   .nav{ display:flex; flex-direction:column; gap:4px; margin-top:30px; }
   .nav-btn{ display:flex; align-items:center; gap:9px; padding:9px 10px; border-radius:8px; border:none; background:transparent; color:#D9E0D5; font-size:13px; text-align:left; }
   .nav-btn-active{ background:rgba(255,255,255,0.12); color:#fff; font-weight:700; }
 
-  .page{ flex:1; padding:22px 26px; overflow-y:auto; background-image: repeating-linear-gradient(180deg, transparent, transparent 34px, #C9CDB755 35px); background-position: 0 90px; }
+  .page{ flex:1; min-width:0; padding:22px 26px; background-color:var(--paper); background-image: repeating-linear-gradient(180deg, transparent, transparent 34px, #C9CDB755 35px); background-position: 0 90px; border-radius:0 14px 14px 0; }
   .page-header{ display:flex; justify-content:space-between; align-items:center; margin-bottom:18px; flex-wrap:wrap; gap:10px; }
   .month-nav{ display:flex; align-items:center; gap:10px; }
   .month-btn{ border:1px solid var(--paper-line); background:#fff; border-radius:7px; width:28px; height:28px; display:flex; align-items:center; justify-content:center; color:var(--ink); }
@@ -63,6 +63,11 @@
 
   .ruled-list{ display:flex; flex-direction:column; }
   .date-header{ font-size:12px; font-weight:700; color:var(--ink-faint); margin-bottom:6px; letter-spacing:0.3px; }
+  .list-toolbar{ display:flex; align-items:center; gap:10px; margin-bottom:12px; flex-wrap:wrap; }
+  .toolbar-btn{ border:1px solid var(--paper-line); background:#fff; border-radius:8px; padding:7px 13px; font-size:12.5px; font-weight:600; color:var(--ink); }
+  .toolbar-btn-danger{ border-color:var(--stamp); color:var(--stamp); }
+  .toolbar-btn-danger:disabled{ opacity:0.4; cursor:not-allowed; }
+  .toolbar-checkbox-label{ display:flex; align-items:center; gap:6px; font-size:12.5px; color:var(--ink); }
   .tx-row{ display:flex; align-items:center; gap:10px; padding:9px 0; border-bottom:1px dashed var(--paper-line); }
   .tx-icon{ width:30px; height:30px; border-radius:8px; display:flex; align-items:center; justify-content:center; flex-shrink:0; font-size:14px; }
   .tx-cat{ font-size:13.5px; font-weight:500; }
@@ -105,6 +110,7 @@
   .upload-warn{ background:#FBF0E4; border:1px solid var(--gold); color:#6B5320; font-size:12px; padding:10px 12px; border-radius:8px; margin-bottom:12px; line-height:1.5; }
   .link-btn{ background:none; border:none; color:var(--cover); font-weight:700; text-decoration:underline; padding:0; font-size:12px; }
 
+  .settings-section-title{ font-size:13px; font-weight:700; color:var(--ink); margin-bottom:6px; }
   .settings-desc{ font-size:12.5px; color:var(--ink-faint); line-height:1.6; margin:0 0 14px; }
   .key-row{ display:flex; gap:8px; margin-bottom:10px; }
   .settings-status{ font-size:12.5px; margin-bottom:16px; color:var(--ink); }
@@ -112,7 +118,8 @@
 
   @media (max-width: 720px){
     .wrap{ flex-direction:column; }
-    .cover{ width:100%; flex-direction:row; align-items:center; padding:16px 18px; }
+    .cover{ width:100%; flex-direction:row; align-items:center; padding:16px 18px; border-radius:14px 14px 0 0; position:sticky; top:0; max-height:none; overflow-y:visible; }
+    .page{ border-radius:0 0 14px 14px; }
     .nav{ flex-direction:row; margin-top:0; }
     .cover-foot{ display:none; }
     .grid-two{ grid-template-columns:1fr; }
@@ -168,6 +175,50 @@ function saveBudgets(obj){ localStorage.setItem("ledger_budgets", JSON.stringify
 function loadApiKey(){ return localStorage.getItem("ledger_apikey") || ""; }
 function saveApiKey(key){ localStorage.setItem("ledger_apikey", key); }
 function clearApiKey(){ localStorage.removeItem("ledger_apikey"); }
+
+/* ============================================================
+   데이터 백업 (내보내기 / 가져오기)
+============================================================ */
+function exportData(){
+  const payload = {
+    app: "나의 가계부",
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    transactions: state.transactions,
+    budgets: state.budgets,
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `가계부-백업-${todayStr()}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+async function handleImportFile(file){
+  try {
+    const text = await file.text();
+    const data = JSON.parse(text);
+    if (!Array.isArray(data.transactions)) throw new Error("transactions 배열이 없어요");
+    const budgets = (data.budgets && typeof data.budgets === "object") ? data.budgets : {};
+    const currentCount = state.transactions.length;
+    const msg = currentCount > 0
+      ? `이 기기에 이미 ${currentCount}건이 있어요. 가져오면 ${data.transactions.length}건으로 전체 덮어써져요. 계속할까요?`
+      : `${data.transactions.length}건을 가져올까요?`;
+    if (!confirm(msg)) return;
+    state.transactions = data.transactions;
+    state.budgets = budgets;
+    saveTransactions(state.transactions);
+    saveBudgets(state.budgets);
+    alert(`가져오기 완료! ${data.transactions.length}건을 불러왔어요.`);
+    render();
+  } catch (e) {
+    console.error(e);
+    alert("파일을 읽지 못했어요. 이 앱에서 내보낸 백업 파일(JSON)이 맞는지 확인해주세요.");
+  }
+}
 
 /* ============================================================
    엑셀 파싱
@@ -364,6 +415,8 @@ const state = {
   showUpload: false,
   showSettings: false,
   settingsJustSaved: false,
+  selectMode: false,
+  selectedIds: new Set(),
   addForm: { kind: "expense", category: EXPENSE_CATS[0].id, amount: "", date: todayStr(), memo: "" },
   upload: { stage: "select", rows: [], fileName: "", errorMsg: "", warn: "" },
 };
@@ -389,18 +442,19 @@ function donutGradient(byCategory){
 /* ============================================================
    렌더링
 ============================================================ */
-function txRowHtml(t){
+function txRowHtml(t, selectMode){
   const meta = catMeta(t.category);
   const isIncome = t.kind === "income";
   return `
   <div class="tx-row">
+    ${selectMode ? `<input type="checkbox" class="tx-select-checkbox" data-id="${t.id}" ${state.selectedIds.has(t.id) ? "checked" : ""}>` : ""}
     <div class="tx-icon" style="background:${meta.color}22;color:${meta.color}">${meta.emoji}</div>
     <div style="flex:1;min-width:0;">
       <div class="tx-cat">${esc(meta.label)}</div>
       ${t.memo ? `<div class="tx-memo">${esc(t.memo)}</div>` : ""}
     </div>
     <div class="mono tx-amount" style="color:${isIncome ? "var(--income)" : "var(--ink)"}">${isIncome ? "+" : "-"}${fmt(t.amount)}원</div>
-    <button class="trash-btn" data-action="delete-tx" data-id="${t.id}">🗑️</button>
+    ${selectMode ? "" : `<button class="trash-btn" data-action="delete-tx" data-id="${t.id}">🗑️</button>`}
   </div>`;
 }
 
@@ -467,14 +521,37 @@ function renderDashboard(){
 }
 
 function renderList(){
-  if (state.transactions.length === 0) return `<div class="card empty-state">아직 기록된 내역이 없어요. '기록하기'로 시작해보세요.</div>`;
+  const monthKey = ym(state.monthDate);
+  const monthTx = state.transactions.filter(t => t.date.slice(0, 7) === monthKey);
+  const monthLabel = `${state.monthDate.getFullYear()}년 ${state.monthDate.getMonth() + 1}월`;
+  if (monthTx.length === 0) return `<div class="card empty-state">${monthLabel}에 기록된 내역이 없어요. 상단 화살표로 다른 달을 확인하거나 '기록하기'로 시작해보세요.</div>`;
   const map = {};
-  state.transactions.forEach(t => { (map[t.date] ||= []).push(t); });
+  monthTx.forEach(t => { (map[t.date] ||= []).push(t); });
   const grouped = Object.entries(map).sort((a, b) => b[0].localeCompare(a[0]));
-  return `<div class="card">${grouped.map(([date, items]) => `
+  const sm = state.selectMode;
+  const selectedCount = state.selectedIds.size;
+  const monthIds = monthTx.map(t => t.id);
+  const allSelected = sm && monthIds.length > 0 && monthIds.every(id => state.selectedIds.has(id));
+
+  const toolbar = `
+  <div class="list-toolbar">
+    <span style="font-size:12.5px;color:var(--ink-faint);margin-right:4px;">${monthLabel} · ${monthTx.length}건</span>
+    ${!sm ? `
+      <button class="toolbar-btn" data-action="enter-select-mode">☑️ 선택 삭제</button>
+      <button class="toolbar-btn toolbar-btn-danger" data-action="delete-all-confirm">🗑️ 이 달 전체 삭제</button>
+    ` : `
+      <label class="toolbar-checkbox-label">
+        <input type="checkbox" id="select-all-checkbox" ${allSelected ? "checked" : ""}> 전체 선택
+      </label>
+      <button class="toolbar-btn toolbar-btn-danger" data-action="delete-selected" ${selectedCount === 0 ? "disabled" : ""}>선택 삭제 (${selectedCount})</button>
+      <button class="toolbar-btn" data-action="exit-select-mode">취소</button>
+    `}
+  </div>`;
+
+  return `${toolbar}<div class="card">${grouped.map(([date, items]) => `
     <div style="margin-bottom:18px;">
       <div class="date-header">${date}</div>
-      <div class="ruled-list">${items.map(t => txRowHtml(t)).join("")}</div>
+      <div class="ruled-list">${items.map(t => txRowHtml(t, sm)).join("")}</div>
     </div>`).join("")}</div>`;
 }
 
@@ -605,10 +682,20 @@ function renderSettingsModal(){
   <div class="modal-overlay" data-action="close-settings">
     <div class="modal" data-action="noop">
       <div class="modal-header">
-        <div class="serif" style="font-size:17px;font-weight:700;">⚙️ API 키 설정</div>
+        <div class="serif" style="font-size:17px;font-weight:700;">⚙️ 설정</div>
         <button class="icon-btn" data-action="close-settings">✕</button>
       </div>
-      <p class="settings-desc">Claude API 키를 등록하면 엑셀 업로드 시 AI 자동분류를 쓸 수 있어요. 키는 이 브라우저(로컬 저장소)에만 저장되고, 이 파일에는 저장되지 않아요.</p>
+
+      <div class="settings-section-title">💾 데이터 백업</div>
+      <p class="settings-desc">이 기기(브라우저)에 저장된 거래 내역·예산을 파일로 내려받거나, 다른 기기에서 내려받은 백업 파일을 불러올 수 있어요. 컴퓨터·폰을 바꿀 때 이 파일로 옮기시면 돼요. (API 키는 백업에 포함되지 않아요 — 각 기기에서 따로 등록해주세요.)</p>
+      <div style="display:flex;gap:8px;margin-bottom:18px;">
+        <button class="toolbar-btn" style="flex:1;" data-action="export-data">⬇️ 내보내기</button>
+        <button class="toolbar-btn" style="flex:1;" data-action="trigger-import">⬆️ 가져오기</button>
+        <input type="file" id="import-file-input" accept=".json" style="display:none;">
+      </div>
+
+      <div class="settings-section-title">🔑 API 키</div>
+      <p class="settings-desc">Claude API 키를 등록하면 파일 불러오기 시 AI 자동분류를 쓸 수 있어요. 키는 이 브라우저(로컬 저장소)에만 저장되고, 이 파일에는 저장되지 않아요.</p>
       <div class="key-row">
         <input id="settings-key-input" type="${state.keyVisible ? "text" : "password"}" class="text-input" style="flex:1;" placeholder="sk-ant-..." value="${esc(currentInput)}" ${justSaved ? "disabled" : ""}>
         <button class="icon-btn-outline" data-action="toggle-key-visibility">${state.keyVisible ? "🙈" : "👁️"}</button>
@@ -719,11 +806,11 @@ function onClick(e){
   if (!btn) return;
   const action = btn.dataset.action;
   switch (action) {
-    case "nav-dashboard": state.tab = "dashboard"; render(); break;
+    case "nav-dashboard": state.tab = "dashboard"; state.selectMode = false; state.selectedIds = new Set(); render(); break;
     case "nav-list": state.tab = "list"; render(); break;
-    case "nav-budget": state.tab = "budget"; render(); break;
-    case "prev-month": state.monthDate = new Date(state.monthDate.getFullYear(), state.monthDate.getMonth() - 1, 1); render(); break;
-    case "next-month": state.monthDate = new Date(state.monthDate.getFullYear(), state.monthDate.getMonth() + 1, 1); render(); break;
+    case "nav-budget": state.tab = "budget"; state.selectMode = false; state.selectedIds = new Set(); render(); break;
+    case "prev-month": state.monthDate = new Date(state.monthDate.getFullYear(), state.monthDate.getMonth() - 1, 1); state.selectMode = false; state.selectedIds = new Set(); render(); break;
+    case "next-month": state.monthDate = new Date(state.monthDate.getFullYear(), state.monthDate.getMonth() + 1, 1); state.selectMode = false; state.selectedIds = new Set(); render(); break;
     case "open-add": state.addForm = { kind: "expense", category: EXPENSE_CATS[0].id, amount: "", date: todayStr(), memo: "" }; state.showAdd = true; render(); break;
     case "close-add": state.showAdd = false; render(); break;
     case "add-kind": {
@@ -744,6 +831,26 @@ function onClick(e){
     case "delete-tx": {
       state.transactions = state.transactions.filter(t => t.id !== btn.dataset.id);
       saveTransactions(state.transactions);
+      render(); break;
+    }
+    case "enter-select-mode": state.selectMode = true; state.selectedIds = new Set(); render(); break;
+    case "exit-select-mode": state.selectMode = false; state.selectedIds = new Set(); render(); break;
+    case "delete-all-confirm": {
+      const monthKey = ym(state.monthDate);
+      const monthCount = state.transactions.filter(t => t.date.slice(0, 7) === monthKey).length;
+      if (monthCount === 0) return;
+      if (!confirm(`${state.monthDate.getMonth() + 1}월 거래 ${monthCount}건을 전체 삭제할까요? 되돌릴 수 없어요.`)) return;
+      state.transactions = state.transactions.filter(t => t.date.slice(0, 7) !== monthKey);
+      saveTransactions(state.transactions);
+      state.selectMode = false; state.selectedIds = new Set();
+      render(); break;
+    }
+    case "delete-selected": {
+      if (state.selectedIds.size === 0) return;
+      if (!confirm(`선택한 ${state.selectedIds.size}건을 삭제할까요? 되돌릴 수 없어요.`)) return;
+      state.transactions = state.transactions.filter(t => !state.selectedIds.has(t.id));
+      saveTransactions(state.transactions);
+      state.selectMode = false; state.selectedIds = new Set();
       render(); break;
     }
     case "open-upload": state.upload = { stage: "select", rows: [], fileName: "", errorMsg: "", warn: "" }; state.showUpload = true; render(); break;
@@ -775,6 +882,12 @@ function onClick(e){
       state.showUpload = false; render(); break;
     }
     case "toggle-settings": state.pendingKeyInput = state.apiKey; state.showSettings = !state.showSettings; render(); break;
+    case "export-data": exportData(); break;
+    case "trigger-import": {
+      const fi = document.getElementById("import-file-input");
+      if (fi) fi.click();
+      break;
+    }
     case "close-settings": state.showSettings = false; render(); break;
     case "close-upload-open-settings": state.showUpload = false; state.pendingKeyInput = state.apiKey; state.showSettings = true; render(); break;
     case "toggle-key-visibility": {
@@ -820,7 +933,23 @@ function onChange(e){
     if (t.files && t.files[0]) handleFile(t.files[0]);
     return;
   }
+  if (t.id === "import-file-input") {
+    if (t.files && t.files[0]) handleImportFile(t.files[0]);
+    t.value = "";
+    return;
+  }
   if (t.id === "add-date") { state.addForm.date = t.value; return; }
+  if (t.matches && t.matches(".tx-select-checkbox")) {
+    const id = t.dataset.id;
+    if (t.checked) state.selectedIds.add(id); else state.selectedIds.delete(id);
+    render(); return;
+  }
+  if (t.id === "select-all-checkbox") {
+    const checkboxes = document.querySelectorAll(".tx-select-checkbox");
+    if (t.checked) { checkboxes.forEach(cb => state.selectedIds.add(cb.dataset.id)); }
+    else { checkboxes.forEach(cb => state.selectedIds.delete(cb.dataset.id)); }
+    render(); return;
+  }
 }
 function onInput(e){
   const t = e.target;
