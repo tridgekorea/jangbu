@@ -116,6 +116,17 @@
   .settings-status{ font-size:12.5px; margin-bottom:16px; color:var(--ink); }
   .settings-warn{ font-size:11px; color:var(--ink-faint); line-height:1.6; margin-top:14px; border-top:1px dashed var(--paper-line); padding-top:12px; }
 
+  .memo-card{ background:#FBFAF4; border:1px solid var(--paper-line); border-left:3px solid var(--gold); border-radius:8px; padding:12px 14px; }
+  .memo-question{ font-size:13.5px; font-weight:700; color:var(--ink); }
+  .memo-note{ font-size:12px; color:var(--ink-faint); margin-top:3px; line-height:1.5; }
+  .memo-total{ font-size:19px; font-weight:700; margin-top:8px; }
+  .memo-details{ margin-top:8px; }
+  .memo-details summary{ font-size:12px; color:var(--cover); cursor:pointer; font-weight:600; }
+  .memo-items{ display:flex; flex-direction:column; gap:6px; margin-top:8px; padding-top:8px; border-top:1px dashed var(--paper-line); }
+  .memo-item{ display:flex; align-items:center; gap:8px; font-size:12px; }
+  .memo-item-desc{ flex:1; color:var(--ink); }
+  .memo-item-excluded{ opacity:0.4; text-decoration:line-through; }
+
   @media (max-width: 720px){
     .wrap{ flex-direction:column; }
     .cover{ width:100%; flex-direction:row; align-items:center; padding:16px 18px; border-radius:14px 14px 0 0; position:sticky; top:0; max-height:none; overflow-y:visible; }
@@ -172,6 +183,8 @@ function loadTransactions(){ try { return JSON.parse(localStorage.getItem("ledge
 function saveTransactions(list){ localStorage.setItem("ledger_transactions", JSON.stringify(list)); }
 function loadBudgets(){ try { return JSON.parse(localStorage.getItem("ledger_budgets") || "{}"); } catch(e) { return {}; } }
 function saveBudgets(obj){ localStorage.setItem("ledger_budgets", JSON.stringify(obj)); }
+function loadMemos(){ try { return JSON.parse(localStorage.getItem("ledger_memos") || "{}"); } catch(e) { return {}; } }
+function saveMemos(obj){ localStorage.setItem("ledger_memos", JSON.stringify(obj)); }
 function loadApiKey(){ return localStorage.getItem("ledger_apikey") || ""; }
 function saveApiKey(key){ localStorage.setItem("ledger_apikey", key); }
 function clearApiKey(){ localStorage.removeItem("ledger_apikey"); }
@@ -186,6 +199,7 @@ function exportData(){
     exportedAt: new Date().toISOString(),
     transactions: state.transactions,
     budgets: state.budgets,
+    memos: state.memos,
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -203,6 +217,7 @@ async function handleImportFile(file){
     const data = JSON.parse(text);
     if (!Array.isArray(data.transactions)) throw new Error("transactions 배열이 없어요");
     const budgets = (data.budgets && typeof data.budgets === "object") ? data.budgets : {};
+    const memos = (data.memos && typeof data.memos === "object") ? data.memos : {};
     const currentCount = state.transactions.length;
     const msg = currentCount > 0
       ? `이 기기에 이미 ${currentCount}건이 있어요. 가져오면 ${data.transactions.length}건으로 전체 덮어써져요. 계속할까요?`
@@ -210,8 +225,10 @@ async function handleImportFile(file){
     if (!confirm(msg)) return;
     state.transactions = data.transactions;
     state.budgets = budgets;
+    state.memos = memos;
     saveTransactions(state.transactions);
     saveBudgets(state.budgets);
+    saveMemos(state.memos);
     alert(`가져오기 완료! ${data.transactions.length}건을 불러왔어요.`);
     render();
   } catch (e) {
@@ -401,6 +418,48 @@ async function classifyBatch(items, apiKey){
 }
 
 /* ============================================================
+   AI에게 물어보기 (자연어 질의 → 관련 거래 찾기 + 합산)
+============================================================ */
+function buildAskPrompt(question, txs){
+  return `당신은 한국 가계부 데이터를 분석하는 도우미입니다.
+아래는 사용자의 이번 달 거래 내역입니다. 각 줄은 "id: 날짜 | 카테고리 | 내용 | 금액" 형식입니다.
+
+${txs.map(t => `${t.id}: ${t.date} | ${catMeta(t.category).label} | ${t.memo || "(내용없음)"} | ${t.kind === "income" ? "+" : "-"}${fmt(t.amount)}원`).join("\n")}
+
+사용자 질문: "${question}"
+
+이 질문과 의미적으로 관련된 거래 항목의 id를 모두 골라주세요 (예: "배달음식"이면 배달앱·음식점 관련 항목, "쿠팡"이면 쿠팡 관련 결제 항목 등). 애매하면 관련성이 높은 쪽으로 포함하세요.
+반드시 아래 JSON 형식으로만 응답하세요. 다른 텍스트, 설명, 마크다운 없이 순수 JSON만 출력하세요.
+{"matchedIds": ["id1", "id2"], "note": "무엇을 기준으로 골랐는지 한 문장 설명"}`;
+}
+async function askAI(question, txs, apiKey){
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true",
+    },
+    body: JSON.stringify({
+      model: "claude-sonnet-5",
+      max_tokens: 2048,
+      messages: [{ role: "user", content: buildAskPrompt(question, txs) }],
+    }),
+  });
+  const data = await res.json();
+  if (data.error) throw new Error(data.error.message || "API 오류");
+  const text = (data.content || []).filter(c => c.type === "text").map(c => c.text).join("\n");
+  const clean = text.replace(/```json|```/g, "").trim();
+  const start = clean.indexOf("{");
+  const end = clean.lastIndexOf("}");
+  if (start === -1 || end === -1) throw new Error("응답에서 JSON 객체를 찾지 못함");
+  const parsed = JSON.parse(clean.slice(start, end + 1));
+  if (!Array.isArray(parsed.matchedIds)) throw new Error("matchedIds가 없는 응답");
+  return parsed;
+}
+
+/* ============================================================
    상태
 ============================================================ */
 const state = {
@@ -417,6 +476,9 @@ const state = {
   settingsJustSaved: false,
   selectMode: false,
   selectedIds: new Set(),
+  memos: loadMemos(),
+  showAsk: false,
+  ask: { stage: "input", question: "", result: null, error: "" },
   addForm: { kind: "expense", category: EXPENSE_CATS[0].id, amount: "", date: todayStr(), memo: "" },
   upload: { stage: "select", rows: [], fileName: "", errorMsg: "", warn: "" },
 };
@@ -517,7 +579,55 @@ function renderDashboard(){
     </div>
   </div>
   ${renderBudgetProgress(byCategory)}
+  ${renderMemoSection(ym(state.monthDate))}
   `;
+}
+
+function renderMemoCard(memo, monthKey){
+  const includedIds = memo.matchedIds.filter(id => !memo.excludedIds.includes(id));
+  const txs = includedIds.map(id => state.transactions.find(t => t.id === id)).filter(Boolean);
+  const total = txs.reduce((s, t) => s + (t.kind === "income" ? t.amount : -t.amount), 0);
+  return `
+  <div class="memo-card">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
+      <div style="flex:1;min-width:0;">
+        <div class="memo-question">💬 ${esc(memo.question)}</div>
+        ${memo.note ? `<div class="memo-note">${esc(memo.note)}</div>` : ""}
+      </div>
+      <button class="trash-btn" data-action="delete-memo" data-id="${memo.id}" data-month="${monthKey}">🗑️</button>
+    </div>
+    <div class="mono memo-total" style="color:${total >= 0 ? "var(--income)" : "var(--stamp)"}">${total >= 0 ? "+" : "-"}${fmt(Math.abs(total))}원</div>
+    <details class="memo-details">
+      <summary>${txs.length}건 반영됨 · 확인 / 제외하기</summary>
+      <div class="memo-items">
+        ${memo.matchedIds.map(id => {
+          const t = state.transactions.find(tx => tx.id === id);
+          if (!t) return "";
+          const meta = catMeta(t.category);
+          const excluded = memo.excludedIds.includes(id);
+          return `<label class="memo-item ${excluded ? "memo-item-excluded" : ""}">
+            <input type="checkbox" class="memo-item-checkbox" data-memo-id="${memo.id}" data-month="${monthKey}" data-tx-id="${id}" ${excluded ? "" : "checked"}>
+            <span class="memo-item-desc">${t.date} · ${meta.emoji} ${esc(t.memo || meta.label)}</span>
+            <span class="mono">${t.kind === "income" ? "+" : "-"}${fmt(t.amount)}원</span>
+          </label>`;
+        }).join("")}
+      </div>
+    </details>
+  </div>`;
+}
+
+function renderMemoSection(monthKey){
+  const memos = state.memos[monthKey] || [];
+  return `
+  <div class="card" style="margin-top:16px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+      <div class="card-title serif" style="margin-bottom:0;">🤖 이달의 메모</div>
+      <button class="toolbar-btn" data-action="open-ask">＋ 질문하기</button>
+    </div>
+    ${memos.length === 0
+      ? `<div class="empty-state">아직 메모가 없어요. "배달음식 얼마나 썼어?"처럼 편하게 물어보세요.</div>`
+      : `<div style="display:flex;flex-direction:column;gap:12px;">${memos.map(m => renderMemoCard(m, monthKey)).join("")}</div>`}
+  </div>`;
 }
 
 function renderList(){
@@ -674,6 +784,69 @@ function renderUploadModal(){
   </div>`;
 }
 
+function renderAskModal(){
+  const a = state.ask;
+  let inner = "";
+  if (a.stage === "input") {
+    inner = `
+    <p class="settings-desc">${state.monthDate.getMonth() + 1}월 거래 내역을 바탕으로 물어보세요. 예: "배달음식 얼마나 썼어?", "쿠팡에서 얼마 썼어?"</p>
+    <textarea id="ask-question-input" class="text-input" style="width:100%;min-height:70px;resize:vertical;margin-bottom:12px;font-family:inherit;" placeholder="궁금한 걸 물어보세요...">${esc(a.question)}</textarea>
+    ${!state.apiKey ? `<div class="upload-warn">⚠️ 먼저 설정에서 API 키를 등록해주세요. <button class="link-btn" data-action="close-ask-open-settings">키 등록하기</button></div>` : ""}
+    <button class="submit-btn" data-action="submit-ask">🤖 물어보기</button>
+    `;
+  } else if (a.stage === "asking") {
+    inner = `
+    <div style="padding:34px 0;text-align:center;color:var(--ink-faint);">
+      <div class="spinner"></div>
+      <div style="margin-top:12px;font-size:13.5px;">AI가 ${state.monthDate.getMonth() + 1}월 내역을 살펴보는 중…</div>
+    </div>`;
+  } else if (a.stage === "error") {
+    inner = `
+    <div style="padding:24px 0;text-align:center;">
+      <div style="font-size:26px;">⚠️</div>
+      <div style="margin-top:10px;font-size:13px;color:var(--ink);">${esc(a.error)}</div>
+      <button class="submit-btn" style="margin-top:16px;" data-action="retry-ask">다시 시도</button>
+    </div>`;
+  } else if (a.stage === "review" && a.result) {
+    const r = a.result;
+    const includedIds = r.matchedIds.filter(id => !r.excludedIds.has(id));
+    const txs = includedIds.map(id => state.transactions.find(t => t.id === id)).filter(Boolean);
+    const total = txs.reduce((s, t) => s + (t.kind === "income" ? t.amount : -t.amount), 0);
+    inner = `
+    <div class="settings-desc" style="margin-bottom:8px;">💬 "${esc(a.question)}"</div>
+    ${r.note ? `<div class="memo-note" style="margin-bottom:10px;">${esc(r.note)}</div>` : ""}
+    <div class="mono" style="font-size:26px;font-weight:700;margin-bottom:4px;color:${total >= 0 ? "var(--income)" : "var(--stamp)"}">${total >= 0 ? "+" : "-"}${fmt(Math.abs(total))}원</div>
+    <div style="font-size:12px;color:var(--ink-faint);margin-bottom:12px;">${txs.length}건 반영됨 · 체크 해제하면 제외돼요</div>
+    ${r.matchedIds.length === 0 ? `<div class="empty-state">관련된 거래를 찾지 못했어요.</div>` : `
+    <div style="max-height:240px;overflow-y:auto;border:1px solid var(--paper-line);border-radius:8px;padding:6px 10px;margin-bottom:14px;">
+      ${r.matchedIds.map(id => {
+        const t = state.transactions.find(tx => tx.id === id);
+        if (!t) return "";
+        const meta = catMeta(t.category);
+        const excluded = r.excludedIds.has(id);
+        return `<label class="memo-item ${excluded ? "memo-item-excluded" : ""}">
+          <input type="checkbox" class="ask-include-checkbox" data-tx-id="${id}" ${excluded ? "" : "checked"}>
+          <span class="memo-item-desc">${t.date} · ${meta.emoji} ${esc(t.memo || meta.label)}</span>
+          <span class="mono">${t.kind === "income" ? "+" : "-"}${fmt(t.amount)}원</span>
+        </label>`;
+      }).join("")}
+    </div>`}
+    <button class="submit-btn" data-action="save-memo" ${r.matchedIds.length === 0 ? "disabled" : ""}>📌 메모로 저장</button>
+    <button class="ghost-btn" data-action="retry-ask">다시 질문하기</button>
+    `;
+  }
+  return `
+  <div class="modal-overlay" data-action="close-ask">
+    <div class="modal" style="width:440px;max-height:85vh;display:flex;flex-direction:column;overflow-y:auto;" data-action="noop">
+      <div class="modal-header">
+        <div class="serif" style="font-size:17px;font-weight:700;">🤖 AI에게 물어보기</div>
+        <button class="icon-btn" data-action="close-ask">✕</button>
+      </div>
+      ${inner}
+    </div>
+  </div>`;
+}
+
 function renderSettingsModal(){
   const currentInput = state.pendingKeyInput !== "" ? state.pendingKeyInput : state.apiKey;
   const masked = state.apiKey ? state.apiKey.slice(0, 7) + "••••••••••••" + state.apiKey.slice(-4) : "";
@@ -758,6 +931,7 @@ function render(){
     ${state.showAdd ? renderAddModal() : ""}
     ${state.showUpload ? renderUploadModal() : ""}
     ${state.showSettings ? renderSettingsModal() : ""}
+    ${state.showAsk ? renderAskModal() : ""}
   `;
 }
 
@@ -890,6 +1064,65 @@ function onClick(e){
     }
     case "close-settings": state.showSettings = false; render(); break;
     case "close-upload-open-settings": state.showUpload = false; state.pendingKeyInput = state.apiKey; state.showSettings = true; render(); break;
+    case "open-ask": state.ask = { stage: "input", question: "", result: null, error: "" }; state.showAsk = true; render(); break;
+    case "close-ask": state.showAsk = false; render(); break;
+    case "close-ask-open-settings": state.showAsk = false; state.pendingKeyInput = state.apiKey; state.showSettings = true; render(); break;
+    case "retry-ask": state.ask.stage = "input"; render(); break;
+    case "submit-ask": {
+      const input = document.getElementById("ask-question-input");
+      const q = (input ? input.value : state.ask.question || "").trim();
+      if (!q) { alert("질문을 입력해주세요"); return; }
+      if (!state.apiKey) { alert("먼저 설정에서 API 키를 등록해주세요."); return; }
+      state.ask.question = q;
+      state.ask.stage = "asking";
+      render();
+      const monthKey = ym(state.monthDate);
+      const monthTx = state.transactions.filter(t => t.date.slice(0, 7) === monthKey);
+      if (monthTx.length === 0) {
+        state.ask.error = "이번 달 거래 내역이 없어요. 먼저 기록을 추가하거나 파일을 불러와주세요.";
+        state.ask.stage = "error";
+        render();
+        break;
+      }
+      askAI(q, monthTx, state.apiKey).then(res => {
+        state.ask.result = { matchedIds: res.matchedIds, note: res.note || "", excludedIds: new Set() };
+        state.ask.stage = "review";
+        render();
+      }).catch(e => {
+        console.error("AI 질문 처리 실패", e);
+        state.ask.error = "질문을 처리하는 중 오류가 발생했어요. 다시 시도해주세요.";
+        state.ask.stage = "error";
+        render();
+      });
+      break;
+    }
+    case "save-memo": {
+      const monthKey = ym(state.monthDate);
+      const r = state.ask.result;
+      if (!r || r.matchedIds.length === 0) return;
+      const memo = {
+        id: uid(),
+        question: state.ask.question,
+        matchedIds: r.matchedIds,
+        excludedIds: [...r.excludedIds],
+        note: r.note,
+        createdAt: new Date().toISOString(),
+      };
+      if (!state.memos[monthKey]) state.memos[monthKey] = [];
+      state.memos[monthKey].push(memo);
+      saveMemos(state.memos);
+      state.showAsk = false;
+      render(); break;
+    }
+    case "delete-memo": {
+      const month = btn.dataset.month;
+      const id = btn.dataset.id;
+      if (state.memos[month]) {
+        state.memos[month] = state.memos[month].filter(m => m.id !== id);
+        saveMemos(state.memos);
+      }
+      render(); break;
+    }
     case "toggle-key-visibility": {
       const input = document.getElementById("settings-key-input");
       if (input) state.pendingKeyInput = input.value;
@@ -948,6 +1181,23 @@ function onChange(e){
     const checkboxes = document.querySelectorAll(".tx-select-checkbox");
     if (t.checked) { checkboxes.forEach(cb => state.selectedIds.add(cb.dataset.id)); }
     else { checkboxes.forEach(cb => state.selectedIds.delete(cb.dataset.id)); }
+    render(); return;
+  }
+  if (t.matches && t.matches(".ask-include-checkbox")) {
+    const id = t.dataset.txId;
+    if (!state.ask.result) return;
+    if (t.checked) state.ask.result.excludedIds.delete(id); else state.ask.result.excludedIds.add(id);
+    render(); return;
+  }
+  if (t.matches && t.matches(".memo-item-checkbox")) {
+    const memoId = t.dataset.memoId, month = t.dataset.month, txId = t.dataset.txId;
+    const list = state.memos[month];
+    const memo = list && list.find(m => m.id === memoId);
+    if (memo) {
+      if (t.checked) memo.excludedIds = memo.excludedIds.filter(x => x !== txId);
+      else if (!memo.excludedIds.includes(txId)) memo.excludedIds.push(txId);
+      saveMemos(state.memos);
+    }
     render(); return;
   }
 }
