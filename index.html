@@ -92,7 +92,8 @@
   .submit-btn{ width:100%; background:var(--cover); color:#fff; border:none; border-radius:9px; padding:12px 0; font-size:14px; font-weight:700; }
   .ghost-btn{ width:100%; background:transparent; color:var(--stamp); border:1px solid var(--stamp); border-radius:9px; padding:10px 0; font-size:13px; font-weight:700; margin-top:8px; }
 
-  .drop-zone{ display:flex; flex-direction:column; align-items:center; justify-content:center; padding:34px 20px; border:2px dashed var(--paper-line); border-radius:12px; cursor:pointer; text-align:center; }
+  .drop-zone{ display:flex; flex-direction:column; align-items:center; justify-content:center; padding:34px 20px; border:2px dashed var(--paper-line); border-radius:12px; cursor:pointer; text-align:center; transition:background 0.15s, border-color 0.15s; }
+  .drop-zone.drag-over{ border-color:var(--stamp); background:rgba(178,59,46,0.06); }
   .review-table{ width:100%; border-collapse:collapse; font-size:12.5px; }
   .review-table th{ text-align:left; padding:8px 10px; font-weight:700; color:var(--ink-faint); border-bottom:1px solid var(--paper-line); background:var(--paper); position:sticky; top:0; }
   .review-table td{ padding:7px 10px; border-bottom:1px dashed var(--paper-line); }
@@ -172,9 +173,9 @@ function clearApiKey(){ localStorage.removeItem("ledger_apikey"); }
    엑셀 파싱
 ============================================================ */
 const HEADER_HINTS = {
-  date: ["날짜", "거래일", "거래일시", "일자", "date"],
-  desc: ["적요", "내용", "가맹점", "상호", "거래내용", "설명", "memo", "description"],
-  amountSingle: ["금액", "거래금액", "amount"],
+  date: ["날짜", "거래일", "거래일시", "일자", "이용일", "date"],
+  desc: ["적요", "내용", "가맹점", "상호", "거래내용", "설명", "이용가맹점", "memo", "description"],
+  amountSingle: ["금액", "거래금액", "이용금액", "amount"],
   out: ["출금액", "출금", "지출", "withdrawal"],
   in: ["입금액", "입금", "수입", "deposit"],
   kind: ["구분", "종류", "타입", "type"],
@@ -183,26 +184,30 @@ function findCol(headers, hints){
   const idx = headers.findIndex(h => hints.some(hint => String(h || "").toLowerCase().includes(hint.toLowerCase())));
   return idx === -1 ? null : idx;
 }
-function excelSerialToDate(v){
+function parseFlexibleDate(v){
   if (v instanceof Date) return v;
   if (typeof v === "number") return new Date(Math.round((v - 25569) * 86400 * 1000));
-  const d = new Date(v);
+  const s = String(v || "").trim();
+  const m = s.match(/(\d{4})\D+(\d{1,2})\D+(\d{1,2})/); // "2026년 05월 23일" / "2026-05-23" / "2026.05.23" 등
+  if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  const d = new Date(s);
   return isNaN(d) ? null : d;
 }
 function toDateStr(d){ if (!d) return todayStr(); return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; }
 
-async function parseExcelFile(file){
-  const buf = await file.arrayBuffer();
-  const wb = XLSX.read(buf, { type: "array", cellDates: true });
-  const sheet = wb.Sheets[wb.SheetNames[0]];
-  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: "" });
-  if (rows.length < 2) return [];
-
-  let headerRowIdx = 0, bestScore = -1;
-  for (let i = 0; i < Math.min(5, rows.length); i++) {
-    const score = rows[i].filter(c => typeof c === "string" && c.trim()).length;
-    if (score > bestScore) { bestScore = score; headerRowIdx = i; }
+function findHeaderRow(rows){
+  const allHints = [...HEADER_HINTS.date, ...HEADER_HINTS.desc, ...HEADER_HINTS.amountSingle, ...HEADER_HINTS.out, ...HEADER_HINTS.in, ...HEADER_HINTS.kind];
+  let bestIdx = 0, bestScore = -1;
+  for (let i = 0; i < Math.min(10, rows.length); i++) {
+    const score = rows[i].filter(c => typeof c === "string" && allHints.some(h => c.toLowerCase().includes(h.toLowerCase()))).length;
+    if (score > bestScore) { bestScore = score; bestIdx = i; }
   }
+  return bestIdx;
+}
+
+function rowsToTransactions(rows){
+  if (rows.length < 2) return [];
+  const headerRowIdx = findHeaderRow(rows);
   const headers = rows[headerRowIdx];
   const dateCol = findCol(headers, HEADER_HINTS.date);
   const descCol = findCol(headers, HEADER_HINTS.desc);
@@ -224,7 +229,7 @@ async function parseExcelFile(file){
       amount = Math.abs(raw);
       kind = raw < 0 ? "expense" : (kindCol !== null && String(r[kindCol]).includes("수입")) ? "income" : "expense";
     }
-    const dateVal = dateCol !== null ? excelSerialToDate(r[dateCol]) : null;
+    const dateVal = dateCol !== null ? parseFlexibleDate(r[dateCol]) : null;
     return {
       _rowId: uid(),
       date: toDateStr(dateVal),
@@ -232,6 +237,38 @@ async function parseExcelFile(file){
       amount, kind, category: null, include: amount > 0,
     };
   }).filter(r => r.amount > 0);
+}
+
+function parseHtmlTable(text){
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(text, "text/html");
+  const tables = Array.from(doc.querySelectorAll("table"));
+  if (tables.length === 0) return [];
+  const allHints = [...HEADER_HINTS.date, ...HEADER_HINTS.desc, ...HEADER_HINTS.amountSingle, ...HEADER_HINTS.out, ...HEADER_HINTS.in];
+  function tableScore(table){
+    const t = table.textContent || "";
+    return allHints.reduce((s, h) => s + (t.includes(h) ? 1 : 0), 0);
+  }
+  let bestTable = tables[0], bestScore = -1;
+  tables.forEach(t => { const s = tableScore(t); if (s > bestScore) { bestScore = s; bestTable = t; } });
+  return Array.from(bestTable.querySelectorAll("tr")).map(tr =>
+    Array.from(tr.children).map(cell => (cell.textContent || "").replace(/\s+/g, " ").trim())
+  ).filter(r => r.length > 0);
+}
+
+async function parseExcelFile(file){
+  const text = await file.text();
+  const looksHtml = /<table[\s>]/i.test(text) || /<html[\s>]/i.test(text) || /<!DOCTYPE html/i.test(text);
+  let rows;
+  if (looksHtml) {
+    rows = parseHtmlTable(text);
+  } else {
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: "array", cellDates: true });
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: "" });
+  }
+  return rowsToTransactions(rows);
 }
 
 /* ============================================================
@@ -307,6 +344,7 @@ const state = {
   showAdd: false,
   showUpload: false,
   showSettings: false,
+  settingsJustSaved: false,
   addForm: { kind: "expense", category: EXPENSE_CATS[0].id, amount: "", date: todayStr(), memo: "" },
   upload: { stage: "select", rows: [], fileName: "", errorMsg: "", warn: "" },
 };
@@ -468,9 +506,9 @@ function renderUploadModal(){
   let inner = "";
   if (u.stage === "select") {
     inner = `
-    <label class="drop-zone">
+    <label class="drop-zone" id="drop-zone">
       <div style="font-size:26px;">📤</div>
-      <div style="font-size:13.5px;margin-top:10px;color:var(--ink);font-weight:600;">거래내역 엑셀 파일을 선택하세요</div>
+      <div style="font-size:13.5px;margin-top:10px;color:var(--ink);font-weight:600;">클릭하거나 파일을 여기로 끌어다 놓으세요</div>
       <div style="font-size:11.5px;color:var(--ink-faint);margin-top:4px;">은행/카드사에서 내려받은 xlsx, xls, csv 지원</div>
       <input id="upload-file-input" type="file" accept=".xlsx,.xls,.csv" style="display:none;">
     </label>
@@ -535,6 +573,7 @@ function renderUploadModal(){
 function renderSettingsModal(){
   const currentInput = state.pendingKeyInput !== "" ? state.pendingKeyInput : state.apiKey;
   const masked = state.apiKey ? state.apiKey.slice(0, 7) + "••••••••••••" + state.apiKey.slice(-4) : "";
+  const justSaved = state.settingsJustSaved;
   return `
   <div class="modal-overlay" data-action="close-settings">
     <div class="modal" data-action="noop">
@@ -544,12 +583,14 @@ function renderSettingsModal(){
       </div>
       <p class="settings-desc">Claude API 키를 등록하면 엑셀 업로드 시 AI 자동분류를 쓸 수 있어요. 키는 이 브라우저(로컬 저장소)에만 저장되고, 이 파일에는 저장되지 않아요.</p>
       <div class="key-row">
-        <input id="settings-key-input" type="${state.keyVisible ? "text" : "password"}" class="text-input" style="flex:1;" placeholder="sk-ant-..." value="${esc(currentInput)}">
+        <input id="settings-key-input" type="${state.keyVisible ? "text" : "password"}" class="text-input" style="flex:1;" placeholder="sk-ant-..." value="${esc(currentInput)}" ${justSaved ? "disabled" : ""}>
         <button class="icon-btn-outline" data-action="toggle-key-visibility">${state.keyVisible ? "🙈" : "👁️"}</button>
       </div>
-      <div class="settings-status">${state.apiKey ? `✅ 저장된 키: <span class="mono">${masked}</span>` : "⚠️ 아직 등록된 키가 없어요"}</div>
-      <button class="submit-btn" data-action="save-apikey">저장하기</button>
-      ${state.apiKey ? `<button class="ghost-btn" data-action="clear-apikey">키 삭제</button>` : ""}
+      <div class="settings-status" style="${justSaved ? "color:var(--income);font-weight:700;" : ""}">
+        ${justSaved ? "✅ 저장되었습니다! 창이 자동으로 닫혀요…" : state.apiKey ? `✅ 저장된 키: <span class="mono">${masked}</span>` : "⚠️ 아직 등록된 키가 없어요"}
+      </div>
+      <button class="submit-btn" data-action="save-apikey" ${justSaved ? "disabled" : ""}>${justSaved ? "저장됨 ✅" : "저장하기"}</button>
+      ${state.apiKey && !justSaved ? `<button class="ghost-btn" data-action="clear-apikey">키 삭제</button>` : ""}
       <p class="settings-warn">⚠️ 이 컴퓨터·브라우저를 다른 사람과 함께 쓴다면 사용 후 '키 삭제'를 눌러주세요. 저장된 키는 개발자도구의 애플리케이션 탭(로컬 스토리지)에서 확인될 수 있으니, 공용 PC에서는 등록을 권장하지 않아요.</p>
     </div>
   </div>`;
@@ -694,7 +735,14 @@ function onClick(e){
       const val = (input ? input.value : state.pendingKeyInput || "").trim();
       if (!val) { alert("API 키를 입력해주세요"); return; }
       saveApiKey(val); state.apiKey = val; state.pendingKeyInput = val;
-      render(); break;
+      state.settingsJustSaved = true;
+      render();
+      setTimeout(() => {
+        state.settingsJustSaved = false;
+        state.showSettings = false;
+        render();
+      }, 900);
+      break;
     }
     case "clear-apikey": {
       if (!confirm("저장된 API 키를 삭제할까요?")) return;
@@ -744,6 +792,23 @@ appEl.addEventListener("click", onClick);
 appEl.addEventListener("change", onChange);
 appEl.addEventListener("input", onInput);
 appEl.addEventListener("focusout", onFocusOut);
+appEl.addEventListener("dragover", (e) => {
+  const zone = e.target.closest && e.target.closest(".drop-zone");
+  if (zone) { e.preventDefault(); zone.classList.add("drag-over"); }
+});
+appEl.addEventListener("dragleave", (e) => {
+  const zone = e.target.closest && e.target.closest(".drop-zone");
+  if (zone) { zone.classList.remove("drag-over"); }
+});
+appEl.addEventListener("drop", (e) => {
+  const zone = e.target.closest && e.target.closest(".drop-zone");
+  if (zone) {
+    e.preventDefault();
+    zone.classList.remove("drag-over");
+    const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (file) handleFile(file);
+  }
+});
 </script>
 </body>
 </html>
