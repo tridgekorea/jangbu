@@ -1,0 +1,749 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>나의 가계부</title>
+<script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@500;700&family=Noto+Sans+KR:wght@400;500;700&family=JetBrains+Mono:wght@500;600&display=swap');
+
+  :root{
+    --cover:#1F3A34; --cover-deep:#16281F; --paper:#EEF0E2; --paper-line:#C9CDB7;
+    --ink:#2A2A1E; --ink-faint:#6B6B57; --stamp:#B23B2E; --stamp-deep:#8E2E24;
+    --gold:#A8873A; --income:#3F6B4F;
+  }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; padding:0; background:#E3DFCF; }
+  body{ font-family:'Noto Sans KR',sans-serif; color:var(--ink); padding:24px; min-height:100vh; }
+  .mono{ font-family:'JetBrains Mono',monospace; }
+  .serif{ font-family:'Noto Serif KR',serif; }
+  button{ cursor:pointer; font-family:inherit; }
+  input,select{ font-family:inherit; }
+  ::-webkit-scrollbar{ width:8px; }
+  ::-webkit-scrollbar-thumb{ background:var(--paper-line); border-radius:4px; }
+
+  .wrap{ display:flex; max-width:1040px; margin:0 auto; min-height:640px; background:var(--paper); border-radius:14px; overflow:hidden; box-shadow:0 1px 0 rgba(43,42,30,0.06), 0 8px 24px -12px rgba(22,40,31,0.35); font-size:14px; }
+  .cover{ width:210px; flex-shrink:0; background:linear-gradient(160deg, var(--cover), var(--cover-deep)); color:#EFF3EC; padding:26px 18px; display:flex; flex-direction:column; justify-content:space-between; }
+  .cover-title{ font-size:21px; font-weight:700; letter-spacing:0.3px; }
+  .cover-sub{ font-size:12px; opacity:0.65; margin-top:4px; }
+  .cover-foot{ font-size:11px; opacity:0.55; line-height:1.5; }
+  .nav{ display:flex; flex-direction:column; gap:4px; margin-top:30px; }
+  .nav-btn{ display:flex; align-items:center; gap:9px; padding:9px 10px; border-radius:8px; border:none; background:transparent; color:#D9E0D5; font-size:13px; text-align:left; }
+  .nav-btn-active{ background:rgba(255,255,255,0.12); color:#fff; font-weight:700; }
+
+  .page{ flex:1; padding:22px 26px; overflow-y:auto; background-image: repeating-linear-gradient(180deg, transparent, transparent 34px, #C9CDB755 35px); background-position: 0 90px; }
+  .page-header{ display:flex; justify-content:space-between; align-items:center; margin-bottom:18px; flex-wrap:wrap; gap:10px; }
+  .month-nav{ display:flex; align-items:center; gap:10px; }
+  .month-btn{ border:1px solid var(--paper-line); background:#fff; border-radius:7px; width:28px; height:28px; display:flex; align-items:center; justify-content:center; color:var(--ink); }
+  .month-label{ font-size:22px; font-weight:700; min-width:50px; text-align:center; }
+  .icon-btn-outline{ border:1px solid var(--paper-line); background:#fff; border-radius:8px; width:36px; height:36px; display:flex; align-items:center; justify-content:center; font-size:15px; }
+  .upload-btn{ display:flex; align-items:center; gap:6px; background:#fff; color:var(--cover); border:1px solid var(--cover); border-radius:8px; padding:9px 16px; font-size:13.5px; font-weight:700; }
+  .add-btn{ display:flex; align-items:center; gap:6px; background:var(--stamp); color:#fff; border:none; border-radius:8px; padding:9px 16px; font-size:13.5px; font-weight:700; box-shadow:0 4px 10px -4px rgba(178,59,46,0.5); }
+
+  .summary-row{ display:grid; grid-template-columns:1fr 1fr auto; gap:12px; margin-bottom:16px; }
+  .summary-card{ background:#fff; border:1px solid var(--paper-line); border-radius:10px; padding:14px 16px; }
+  .summary-label{ font-size:12px; color:var(--ink-faint); margin-bottom:4px; }
+  .summary-value{ font-size:19px; font-weight:700; }
+  .stamp-wrap{ display:flex; align-items:center; justify-content:center; }
+  .stamp{ width:92px; height:92px; border-radius:50%; border:2.5px solid var(--stamp); color:var(--stamp-deep); display:flex; flex-direction:column; align-items:center; justify-content:center; transform:rotate(-6deg); background:rgba(178,59,46,0.05); }
+  .stamp-label{ font-size:9.5px; font-weight:700; letter-spacing:0.5px; }
+  .stamp-value{ font-size:14.5px; font-weight:700; line-height:1.2; }
+  .stamp-unit{ font-size:9.5px; }
+
+  .grid-two{ display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  .card{ background:#fff; border:1px solid var(--paper-line); border-radius:12px; padding:18px; }
+  .card-title{ font-size:15px; font-weight:700; margin-bottom:14px; }
+  .empty-state{ color:var(--ink-faint); font-size:13px; line-height:1.6; text-align:center; padding:20px 0; }
+
+  .cat-row{ display:flex; align-items:center; gap:8px; font-size:13px; }
+  .cat-dot{ width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+  .cat-label{ flex:1; color:var(--ink); }
+  .cat-value{ color:var(--ink-faint); font-size:12.5px; }
+
+  .ruled-list{ display:flex; flex-direction:column; }
+  .date-header{ font-size:12px; font-weight:700; color:var(--ink-faint); margin-bottom:6px; letter-spacing:0.3px; }
+  .tx-row{ display:flex; align-items:center; gap:10px; padding:9px 0; border-bottom:1px dashed var(--paper-line); }
+  .tx-icon{ width:30px; height:30px; border-radius:8px; display:flex; align-items:center; justify-content:center; flex-shrink:0; font-size:14px; }
+  .tx-cat{ font-size:13.5px; font-weight:500; }
+  .tx-memo{ font-size:11.5px; color:var(--ink-faint); margin-top:1px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .tx-amount{ font-size:13.5px; font-weight:600; white-space:nowrap; }
+  .trash-btn{ border:none; background:transparent; color:var(--paper-line); padding:4px; display:flex; font-size:13px; }
+
+  .budget-row-top{ display:flex; justify-content:space-between; margin-bottom:5px; }
+  .budget-track{ height:7px; background:var(--paper); border-radius:4px; overflow:hidden; }
+  .budget-fill{ height:100%; border-radius:4px; }
+  .budget-setting-row{ display:flex; align-items:center; gap:10px; }
+  .budget-input{ width:100px; border:1px solid var(--paper-line); border-radius:6px; padding:6px 8px; font-size:13px; text-align:right; }
+
+  .modal-overlay{ position:fixed; inset:0; background:rgba(22,40,31,0.45); display:flex; align-items:center; justify-content:center; z-index:50; padding:16px; }
+  .modal{ width:360px; background:var(--paper); border-radius:14px; padding:22px; box-shadow:0 20px 50px -12px rgba(0,0,0,0.4); max-width:100%; }
+  .modal-header{ display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; }
+  .icon-btn{ border:none; background:transparent; color:var(--ink-faint); font-size:15px; }
+  .kind-toggle{ display:flex; gap:8px; margin-bottom:14px; }
+  .kind-btn{ flex:1; padding:8px 0; border-radius:8px; border:1px solid var(--paper-line); background:#fff; font-size:13.5px; font-weight:600; color:var(--ink-faint); }
+  .kind-btn-active-expense{ background:var(--stamp); border-color:var(--stamp); color:#fff; }
+  .kind-btn-active-income{ background:var(--income); border-color:var(--income); color:#fff; }
+  .amount-input{ width:100%; font-size:30px; font-weight:700; border:none; background:transparent; text-align:center; padding:10px 0 18px; outline:none; color:var(--ink); }
+  .cat-grid{ display:flex; flex-wrap:wrap; gap:6px; margin-bottom:14px; }
+  .cat-chip{ display:flex; align-items:center; gap:5px; padding:6px 10px; border-radius:20px; border:1px solid var(--paper-line); background:#fff; font-size:12.5px; color:var(--ink); }
+  .form-row{ display:flex; gap:8px; margin-bottom:16px; }
+  .text-input{ border:1px solid var(--paper-line); border-radius:8px; padding:8px 10px; font-size:13px; background:#fff; }
+  .submit-btn{ width:100%; background:var(--cover); color:#fff; border:none; border-radius:9px; padding:12px 0; font-size:14px; font-weight:700; }
+  .ghost-btn{ width:100%; background:transparent; color:var(--stamp); border:1px solid var(--stamp); border-radius:9px; padding:10px 0; font-size:13px; font-weight:700; margin-top:8px; }
+
+  .drop-zone{ display:flex; flex-direction:column; align-items:center; justify-content:center; padding:34px 20px; border:2px dashed var(--paper-line); border-radius:12px; cursor:pointer; text-align:center; }
+  .review-table{ width:100%; border-collapse:collapse; font-size:12.5px; }
+  .review-table th{ text-align:left; padding:8px 10px; font-weight:700; color:var(--ink-faint); border-bottom:1px solid var(--paper-line); background:var(--paper); position:sticky; top:0; }
+  .review-table td{ padding:7px 10px; border-bottom:1px dashed var(--paper-line); }
+  .review-cat-select{ border:1px solid var(--paper-line); border-radius:6px; padding:3px 6px; font-size:12px; background:#fff; }
+
+  .spinner{ width:26px; height:26px; border:3px solid var(--paper-line); border-top-color:var(--stamp); border-radius:50%; margin:0 auto; animation:spin 0.8s linear infinite; }
+  @keyframes spin{ to{ transform:rotate(360deg); } }
+
+  .upload-warn{ background:#FBF0E4; border:1px solid var(--gold); color:#6B5320; font-size:12px; padding:10px 12px; border-radius:8px; margin-bottom:12px; line-height:1.5; }
+  .link-btn{ background:none; border:none; color:var(--cover); font-weight:700; text-decoration:underline; padding:0; font-size:12px; }
+
+  .settings-desc{ font-size:12.5px; color:var(--ink-faint); line-height:1.6; margin:0 0 14px; }
+  .key-row{ display:flex; gap:8px; margin-bottom:10px; }
+  .settings-status{ font-size:12.5px; margin-bottom:16px; color:var(--ink); }
+  .settings-warn{ font-size:11px; color:var(--ink-faint); line-height:1.6; margin-top:14px; border-top:1px dashed var(--paper-line); padding-top:12px; }
+
+  @media (max-width: 720px){
+    .wrap{ flex-direction:column; }
+    .cover{ width:100%; flex-direction:row; align-items:center; padding:16px 18px; }
+    .nav{ flex-direction:row; margin-top:0; }
+    .cover-foot{ display:none; }
+    .grid-two{ grid-template-columns:1fr; }
+    .summary-row{ grid-template-columns:1fr 1fr; }
+    .stamp-wrap{ grid-column:1 / -1; }
+  }
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script>
+/* ============================================================
+   데이터 정의
+============================================================ */
+const EXPENSE_CATS = [
+  { id: "food", label: "식비", emoji: "🍚", color: "#7A6A3F" },
+  { id: "cafe", label: "카페/간식", emoji: "☕", color: "#A8873A" },
+  { id: "transit", label: "교통", emoji: "🚌", color: "#5A7A6D" },
+  { id: "shopping", label: "쇼핑", emoji: "🛍️", color: "#8C5A4A" },
+  { id: "culture", label: "문화/여가", emoji: "🎬", color: "#5F6B8A" },
+  { id: "housing", label: "주거/공과금", emoji: "🏠", color: "#3F5A52" },
+  { id: "health", label: "의료/건강", emoji: "➕", color: "#9A5350" },
+  { id: "saving", label: "저축/투자", emoji: "🐷", color: "#3F6B4F" },
+  { id: "etc", label: "기타", emoji: "⋯", color: "#8A8368" },
+];
+const INCOME_CATS = [
+  { id: "salary", label: "급여", emoji: "💼", color: "#3F6B4F" },
+  { id: "side", label: "부수입", emoji: "📈", color: "#5A7A6D" },
+  { id: "gift", label: "용돈/선물", emoji: "🎁", color: "#A8873A" },
+  { id: "etcin", label: "기타수입", emoji: "⋯", color: "#8A8368" },
+];
+const ALL_CATS = [...EXPENSE_CATS, ...INCOME_CATS];
+function catMeta(id){ return ALL_CATS.find(c => c.id === id) || ALL_CATS[ALL_CATS.length - 1]; }
+
+/* ============================================================
+   유틸
+============================================================ */
+function pad(n){ return String(n).padStart(2, "0"); }
+function fmt(n){ return Math.round(n || 0).toLocaleString("ko-KR"); }
+function uid(){ return Math.random().toString(36).slice(2, 10); }
+function todayStr(){ const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; }
+function ym(d){ return `${d.getFullYear()}-${pad(d.getMonth()+1)}`; }
+function esc(s){ const d = document.createElement("div"); d.textContent = s ?? ""; return d.innerHTML; }
+
+/* ============================================================
+   로컬 저장소 (이 컴퓨터/브라우저에 계속 저장됨)
+============================================================ */
+function loadTransactions(){ try { return JSON.parse(localStorage.getItem("ledger_transactions") || "[]"); } catch(e) { return []; } }
+function saveTransactions(list){ localStorage.setItem("ledger_transactions", JSON.stringify(list)); }
+function loadBudgets(){ try { return JSON.parse(localStorage.getItem("ledger_budgets") || "{}"); } catch(e) { return {}; } }
+function saveBudgets(obj){ localStorage.setItem("ledger_budgets", JSON.stringify(obj)); }
+function loadApiKey(){ return localStorage.getItem("ledger_apikey") || ""; }
+function saveApiKey(key){ localStorage.setItem("ledger_apikey", key); }
+function clearApiKey(){ localStorage.removeItem("ledger_apikey"); }
+
+/* ============================================================
+   엑셀 파싱
+============================================================ */
+const HEADER_HINTS = {
+  date: ["날짜", "거래일", "거래일시", "일자", "date"],
+  desc: ["적요", "내용", "가맹점", "상호", "거래내용", "설명", "memo", "description"],
+  amountSingle: ["금액", "거래금액", "amount"],
+  out: ["출금액", "출금", "지출", "withdrawal"],
+  in: ["입금액", "입금", "수입", "deposit"],
+  kind: ["구분", "종류", "타입", "type"],
+};
+function findCol(headers, hints){
+  const idx = headers.findIndex(h => hints.some(hint => String(h || "").toLowerCase().includes(hint.toLowerCase())));
+  return idx === -1 ? null : idx;
+}
+function excelSerialToDate(v){
+  if (v instanceof Date) return v;
+  if (typeof v === "number") return new Date(Math.round((v - 25569) * 86400 * 1000));
+  const d = new Date(v);
+  return isNaN(d) ? null : d;
+}
+function toDateStr(d){ if (!d) return todayStr(); return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; }
+
+async function parseExcelFile(file){
+  const buf = await file.arrayBuffer();
+  const wb = XLSX.read(buf, { type: "array", cellDates: true });
+  const sheet = wb.Sheets[wb.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: "" });
+  if (rows.length < 2) return [];
+
+  let headerRowIdx = 0, bestScore = -1;
+  for (let i = 0; i < Math.min(5, rows.length); i++) {
+    const score = rows[i].filter(c => typeof c === "string" && c.trim()).length;
+    if (score > bestScore) { bestScore = score; headerRowIdx = i; }
+  }
+  const headers = rows[headerRowIdx];
+  const dateCol = findCol(headers, HEADER_HINTS.date);
+  const descCol = findCol(headers, HEADER_HINTS.desc);
+  const outCol = findCol(headers, HEADER_HINTS.out);
+  const inCol = findCol(headers, HEADER_HINTS.in);
+  const amountCol = findCol(headers, HEADER_HINTS.amountSingle);
+  const kindCol = findCol(headers, HEADER_HINTS.kind);
+
+  const dataRows = rows.slice(headerRowIdx + 1).filter(r => r.some(c => c !== ""));
+
+  return dataRows.map(r => {
+    let amount = 0, kind = "expense";
+    if (outCol !== null || inCol !== null) {
+      const outV = Number(String(r[outCol] ?? "").replace(/[^0-9.-]/g, "")) || 0;
+      const inV = Number(String(r[inCol] ?? "").replace(/[^0-9.-]/g, "")) || 0;
+      if (inV > 0) { amount = inV; kind = "income"; } else { amount = outV; kind = "expense"; }
+    } else if (amountCol !== null) {
+      const raw = Number(String(r[amountCol] ?? "").replace(/[^0-9.-]/g, "")) || 0;
+      amount = Math.abs(raw);
+      kind = raw < 0 ? "expense" : (kindCol !== null && String(r[kindCol]).includes("수입")) ? "income" : "expense";
+    }
+    const dateVal = dateCol !== null ? excelSerialToDate(r[dateCol]) : null;
+    return {
+      _rowId: uid(),
+      date: toDateStr(dateVal),
+      desc: descCol !== null ? String(r[descCol] || "").trim() : "",
+      amount, kind, category: null, include: amount > 0,
+    };
+  }).filter(r => r.amount > 0);
+}
+
+/* ============================================================
+   Claude API 자동분류 (직접 브라우저 호출 - 개인 API 키 필요)
+============================================================ */
+function catsForPrompt(kind){
+  return (kind === "income" ? INCOME_CATS : EXPENSE_CATS).map(c => `${c.id}(${c.label})`).join(", ");
+}
+function buildClassifyPrompt(batch, kind){
+  return `당신은 한국 가계부 거래 내역을 분류하는 도우미입니다.
+아래는 은행/카드 거래 내역의 "적요(가맹점명 또는 거래내용)"와 금액입니다.
+각 항목을 다음 카테고리 중 하나로 분류하세요: ${catsForPrompt(kind)}
+
+거래 내역:
+${batch.map(b => `${b._rowId}: "${b.desc}" (${fmt(b.amount)}원)`).join("\n")}
+
+반드시 아래 JSON 배열 형식으로만 응답하세요. 다른 텍스트, 설명, 마크다운 코드블록 없이 순수 JSON만 출력하세요.
+[{"id":"항목id","category":"카테고리id"}, ...]`;
+}
+async function classifyBatch(items, apiKey){
+  const expenseItems = items.filter(i => i.kind === "expense");
+  const incomeItems = items.filter(i => i.kind === "income");
+  const results = {};
+  const CHUNK = 25;
+
+  async function runChunks(list, kind){
+    for (let i = 0; i < list.length; i += CHUNK) {
+      const batch = list.slice(i, i + CHUNK);
+      if (batch.length === 0) continue;
+      try {
+        const res = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-api-key": apiKey,
+            "anthropic-version": "2023-06-01",
+            "anthropic-dangerous-direct-browser-access": "true",
+          },
+          body: JSON.stringify({
+            model: "claude-sonnet-5",
+            max_tokens: 1024,
+            messages: [{ role: "user", content: buildClassifyPrompt(batch, kind) }],
+          }),
+        });
+        const data = await res.json();
+        if (data.error) throw new Error(data.error.message || "API 오류");
+        const text = (data.content || []).filter(c => c.type === "text").map(c => c.text).join("\n");
+        const clean = text.replace(/```json|```/g, "").trim();
+        const arr = JSON.parse(clean);
+        arr.forEach(entry => { results[entry.id] = entry.category; });
+      } catch (e) {
+        console.error("분류 실패, 해당 배치는 기타로 처리", e);
+        batch.forEach(b => { results[b._rowId] = kind === "income" ? "etcin" : "etc"; });
+      }
+    }
+  }
+  await runChunks(expenseItems, "expense");
+  await runChunks(incomeItems, "income");
+  return results;
+}
+
+/* ============================================================
+   상태
+============================================================ */
+const state = {
+  transactions: loadTransactions(),
+  budgets: loadBudgets(),
+  apiKey: loadApiKey(),
+  pendingKeyInput: "",
+  keyVisible: false,
+  monthDate: new Date(),
+  tab: "dashboard",
+  showAdd: false,
+  showUpload: false,
+  showSettings: false,
+  addForm: { kind: "expense", category: EXPENSE_CATS[0].id, amount: "", date: todayStr(), memo: "" },
+  upload: { stage: "select", rows: [], fileName: "", errorMsg: "", warn: "" },
+};
+
+function computeMonthStats(){
+  const monthKey = ym(state.monthDate);
+  const monthTx = state.transactions.filter(t => t.date.slice(0, 7) === monthKey);
+  const income = monthTx.filter(t => t.kind === "income").reduce((s, t) => s + t.amount, 0);
+  const expense = monthTx.filter(t => t.kind === "expense").reduce((s, t) => s + t.amount, 0);
+  const catMap = {};
+  monthTx.filter(t => t.kind === "expense").forEach(t => { catMap[t.category] = (catMap[t.category] || 0) + t.amount; });
+  const byCategory = Object.entries(catMap).map(([id, value]) => ({ id, value, ...catMeta(id) })).sort((a, b) => b.value - a.value);
+  return { monthTx, income, expense, byCategory };
+}
+function donutGradient(byCategory){
+  const total = byCategory.reduce((s, c) => s + c.value, 0);
+  if (total <= 0) return "var(--paper-line) 0% 100%";
+  let acc = 0; const stops = [];
+  byCategory.forEach(c => { const pct = c.value / total * 100; stops.push(`${c.color} ${acc}% ${acc + pct}%`); acc += pct; });
+  return stops.join(", ");
+}
+
+/* ============================================================
+   렌더링
+============================================================ */
+function txRowHtml(t){
+  const meta = catMeta(t.category);
+  const isIncome = t.kind === "income";
+  return `
+  <div class="tx-row">
+    <div class="tx-icon" style="background:${meta.color}22;color:${meta.color}">${meta.emoji}</div>
+    <div style="flex:1;min-width:0;">
+      <div class="tx-cat">${esc(meta.label)}</div>
+      ${t.memo ? `<div class="tx-memo">${esc(t.memo)}</div>` : ""}
+    </div>
+    <div class="mono tx-amount" style="color:${isIncome ? "var(--income)" : "var(--ink)"}">${isIncome ? "+" : "-"}${fmt(t.amount)}원</div>
+    <button class="trash-btn" data-action="delete-tx" data-id="${t.id}">🗑️</button>
+  </div>`;
+}
+
+function renderBudgetProgress(byCategory){
+  const entries = Object.entries(state.budgets).filter(([, v]) => v > 0);
+  if (entries.length === 0) return "";
+  return `
+  <div class="card" style="margin-top:16px;">
+    <div class="card-title serif">예산 진행률</div>
+    <div style="display:flex;flex-direction:column;gap:14px;">
+      ${entries.map(([catId, limit]) => {
+        const spent = (byCategory.find(c => c.id === catId) || { value: 0 }).value;
+        const pct = Math.min(100, spent / limit * 100);
+        const over = spent > limit;
+        const meta = catMeta(catId);
+        return `
+        <div>
+          <div class="budget-row-top"><span class="cat-label">${meta.emoji} ${esc(meta.label)}</span><span class="mono" style="font-size:12.5px;color:${over ? "var(--stamp)" : "var(--ink-faint)"}">${fmt(spent)} / ${fmt(limit)}원</span></div>
+          <div class="budget-track"><div class="budget-fill" style="width:${pct}%;background:${over ? "var(--stamp)" : meta.color}"></div></div>
+        </div>`;
+      }).join("")}
+    </div>
+  </div>`;
+}
+
+function renderDashboard(){
+  const { monthTx, income, expense, byCategory } = computeMonthStats();
+  const balance = income - expense;
+  const recent = monthTx.slice(0, 6);
+  return `
+  <div class="summary-row">
+    <div class="summary-card"><div class="summary-label">수입</div><div class="mono summary-value" style="color:var(--income)">+${fmt(income)}원</div></div>
+    <div class="summary-card"><div class="summary-label">지출</div><div class="mono summary-value" style="color:var(--stamp)">-${fmt(expense)}원</div></div>
+    <div class="stamp-wrap"><div class="stamp"><div class="stamp-label">이번 달</div><div class="mono stamp-value">${balance >= 0 ? "+" : ""}${fmt(balance)}</div><div class="stamp-unit">원</div></div></div>
+  </div>
+  <div class="grid-two">
+    <div class="card">
+      <div class="card-title serif">카테고리별 지출</div>
+      ${byCategory.length === 0 ? `<div class="empty-state">아직 이번 달 지출 기록이 없어요.<br>오른쪽 위 '기록하기'로 첫 줄을 채워보세요.</div>` : `
+      <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap;">
+        <div style="position:relative;width:150px;height:150px;flex-shrink:0;">
+          <div style="width:150px;height:150px;border-radius:50%;background:conic-gradient(${donutGradient(byCategory)});"></div>
+          <div style="position:absolute;top:19px;left:19px;width:112px;height:112px;border-radius:50%;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;font-size:11px;color:var(--ink-faint);">
+            지출<span class="mono" style="font-weight:700;font-size:13px;color:var(--ink);margin-top:2px;">${fmt(expense)}원</span>
+          </div>
+        </div>
+        <div style="flex:1;min-width:140px;display:flex;flex-direction:column;gap:8px;">
+          ${byCategory.slice(0, 6).map(c => `
+          <div class="cat-row">
+            <span class="cat-dot" style="background:${c.color}"></span>
+            <span class="cat-label">${c.emoji} ${esc(c.label)}</span>
+            <span class="mono cat-value">${fmt(c.value)}원</span>
+          </div>`).join("")}
+        </div>
+      </div>`}
+    </div>
+    <div class="card">
+      <div class="card-title serif">최근 기록</div>
+      ${recent.length === 0 ? `<div class="empty-state">기록이 아직 없어요.</div>` : `<div class="ruled-list">${recent.map(t => txRowHtml(t)).join("")}</div>`}
+    </div>
+  </div>
+  ${renderBudgetProgress(byCategory)}
+  `;
+}
+
+function renderList(){
+  if (state.transactions.length === 0) return `<div class="card empty-state">아직 기록된 내역이 없어요. '기록하기'로 시작해보세요.</div>`;
+  const map = {};
+  state.transactions.forEach(t => { (map[t.date] ||= []).push(t); });
+  const grouped = Object.entries(map).sort((a, b) => b[0].localeCompare(a[0]));
+  return `<div class="card">${grouped.map(([date, items]) => `
+    <div style="margin-bottom:18px;">
+      <div class="date-header">${date}</div>
+      <div class="ruled-list">${items.map(t => txRowHtml(t)).join("")}</div>
+    </div>`).join("")}</div>`;
+}
+
+function renderBudgetSettings(){
+  return `<div class="card">
+    <div class="card-title serif">카테고리별 월 예산</div>
+    <div style="display:flex;flex-direction:column;gap:10px;">
+      ${EXPENSE_CATS.map(c => `
+      <div class="budget-setting-row">
+        <div class="tx-icon" style="background:${c.color}22;color:${c.color}">${c.emoji}</div>
+        <div style="flex:1;">${esc(c.label)}</div>
+        <input type="number" class="budget-input mono" data-cat="${c.id}" placeholder="0" value="${state.budgets[c.id] || ""}">
+        <span style="color:var(--ink-faint);font-size:13px;">원</span>
+      </div>`).join("")}
+    </div>
+  </div>`;
+}
+
+function renderAddModal(){
+  const f = state.addForm;
+  const cats = f.kind === "expense" ? EXPENSE_CATS : INCOME_CATS;
+  return `
+  <div class="modal-overlay" data-action="close-add">
+    <div class="modal" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <div class="serif" style="font-size:17px;font-weight:700;">새 기록</div>
+        <button class="icon-btn" data-action="close-add">✕</button>
+      </div>
+      <div class="kind-toggle">
+        <button class="kind-btn ${f.kind === "expense" ? "kind-btn-active-expense" : ""}" data-action="add-kind" data-kind="expense">지출</button>
+        <button class="kind-btn ${f.kind === "income" ? "kind-btn-active-income" : ""}" data-action="add-kind" data-kind="income">수입</button>
+      </div>
+      <input id="add-amount" type="number" autofocus placeholder="0" class="mono amount-input" value="${esc(f.amount || "")}">
+      <div class="cat-grid">
+        ${cats.map(c => `<button class="cat-chip" data-action="add-cat" data-cat="${c.id}" style="${f.category === c.id ? `background:${c.color};border-color:${c.color};color:#fff;` : ""}">${c.emoji} ${esc(c.label)}</button>`).join("")}
+      </div>
+      <div class="form-row">
+        <input id="add-date" type="date" class="text-input" value="${f.date || todayStr()}">
+        <input id="add-memo" type="text" placeholder="메모 (선택)" class="text-input" style="flex:1;" value="${esc(f.memo || "")}">
+      </div>
+      <button class="submit-btn" data-action="submit-add">기록 남기기</button>
+    </div>
+  </div>`;
+}
+
+function renderUploadModal(){
+  const u = state.upload;
+  let inner = "";
+  if (u.stage === "select") {
+    inner = `
+    <label class="drop-zone">
+      <div style="font-size:26px;">📤</div>
+      <div style="font-size:13.5px;margin-top:10px;color:var(--ink);font-weight:600;">거래내역 엑셀 파일을 선택하세요</div>
+      <div style="font-size:11.5px;color:var(--ink-faint);margin-top:4px;">은행/카드사에서 내려받은 xlsx, xls, csv 지원</div>
+      <input id="upload-file-input" type="file" accept=".xlsx,.xls,.csv" style="display:none;">
+    </label>
+    ${!state.apiKey ? `<div class="upload-warn">⚠️ API 키가 없어요. 지금 업로드하면 전부 "기타"로 분류돼요. <button class="link-btn" data-action="close-upload-open-settings">키 등록하기</button></div>` : ""}
+    `;
+  } else if (u.stage === "parsing" || u.stage === "classifying") {
+    inner = `
+    <div style="padding:34px 0;text-align:center;color:var(--ink-faint);">
+      <div class="spinner"></div>
+      <div style="margin-top:12px;font-size:13.5px;">${u.stage === "parsing" ? `${esc(u.fileName)} 읽는 중…` : `✨ AI가 ${u.rows.length}건을 카테고리별로 분류하는 중…`}</div>
+    </div>`;
+  } else if (u.stage === "error") {
+    inner = `
+    <div style="padding:24px 0;text-align:center;">
+      <div style="font-size:26px;">⚠️</div>
+      <div style="margin-top:10px;font-size:13px;color:var(--ink);">${esc(u.errorMsg)}</div>
+      <button class="submit-btn" style="margin-top:16px;" data-action="retry-upload">다시 시도</button>
+    </div>`;
+  } else if (u.stage === "review") {
+    const includedCount = u.rows.filter(r => r.include).length;
+    const totalExpense = u.rows.filter(r => r.include && r.kind === "expense").reduce((s, r) => s + r.amount, 0);
+    const totalIncome = u.rows.filter(r => r.include && r.kind === "income").reduce((s, r) => s + r.amount, 0);
+    inner = `
+    ${u.warn ? `<div class="upload-warn">⚠️ ${esc(u.warn)}</div>` : ""}
+    <div style="display:flex;gap:10px;margin-bottom:12px;font-size:12.5px;color:var(--ink-faint);flex-wrap:wrap;">
+      <span>✅ ${includedCount}건 선택됨</span>
+      <span class="mono">지출 ${fmt(totalExpense)}원</span>
+      <span class="mono" style="color:var(--income)">수입 ${fmt(totalIncome)}원</span>
+    </div>
+    <div style="overflow-y:auto;flex:1;border:1px solid var(--paper-line);border-radius:8px;">
+      <table class="review-table">
+        <thead><tr><th></th><th>날짜</th><th>내용</th><th style="text-align:right;">금액</th><th>카테고리</th></tr></thead>
+        <tbody>
+          ${u.rows.map(r => {
+            const cats = r.kind === "income" ? INCOME_CATS : EXPENSE_CATS;
+            return `<tr style="opacity:${r.include ? 1 : 0.4}">
+              <td><input type="checkbox" class="review-include-checkbox" data-rowid="${r._rowId}" ${r.include ? "checked" : ""}></td>
+              <td class="mono" style="white-space:nowrap;">${r.date}</td>
+              <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(r.desc)}</td>
+              <td class="mono" style="text-align:right;">${r.kind === "income" ? "+" : "-"}${fmt(r.amount)}</td>
+              <td><select class="review-cat-select" data-rowid="${r._rowId}">${cats.map(c => `<option value="${c.id}" ${r.category === c.id ? "selected" : ""}>${c.emoji} ${esc(c.label)}</option>`).join("")}</select></td>
+            </tr>`;
+          }).join("")}
+        </tbody>
+      </table>
+    </div>
+    <button class="submit-btn" style="margin-top:14px;" data-action="confirm-import">${includedCount}건 가계부에 등록하기</button>
+    `;
+  }
+  return `
+  <div class="modal-overlay" data-action="close-upload">
+    <div class="modal" style="width:${u.stage === "review" ? "640px" : "400px"};max-height:85vh;display:flex;flex-direction:column;" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <div class="serif" style="font-size:17px;font-weight:700;display:flex;align-items:center;gap:7px;">📊 엑셀로 불러오기</div>
+        <button class="icon-btn" data-action="close-upload">✕</button>
+      </div>
+      ${inner}
+    </div>
+  </div>`;
+}
+
+function renderSettingsModal(){
+  const currentInput = state.pendingKeyInput !== "" ? state.pendingKeyInput : state.apiKey;
+  const masked = state.apiKey ? state.apiKey.slice(0, 7) + "••••••••••••" + state.apiKey.slice(-4) : "";
+  return `
+  <div class="modal-overlay" data-action="close-settings">
+    <div class="modal" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <div class="serif" style="font-size:17px;font-weight:700;">⚙️ API 키 설정</div>
+        <button class="icon-btn" data-action="close-settings">✕</button>
+      </div>
+      <p class="settings-desc">Claude API 키를 등록하면 엑셀 업로드 시 AI 자동분류를 쓸 수 있어요. 키는 이 브라우저(로컬 저장소)에만 저장되고, 이 파일에는 저장되지 않아요.</p>
+      <div class="key-row">
+        <input id="settings-key-input" type="${state.keyVisible ? "text" : "password"}" class="text-input" style="flex:1;" placeholder="sk-ant-..." value="${esc(currentInput)}">
+        <button class="icon-btn-outline" data-action="toggle-key-visibility">${state.keyVisible ? "🙈" : "👁️"}</button>
+      </div>
+      <div class="settings-status">${state.apiKey ? `✅ 저장된 키: <span class="mono">${masked}</span>` : "⚠️ 아직 등록된 키가 없어요"}</div>
+      <button class="submit-btn" data-action="save-apikey">저장하기</button>
+      ${state.apiKey ? `<button class="ghost-btn" data-action="clear-apikey">키 삭제</button>` : ""}
+      <p class="settings-warn">⚠️ 이 컴퓨터·브라우저를 다른 사람과 함께 쓴다면 사용 후 '키 삭제'를 눌러주세요. 저장된 키는 개발자도구의 애플리케이션 탭(로컬 스토리지)에서 확인될 수 있으니, 공용 PC에서는 등록을 권장하지 않아요.</p>
+    </div>
+  </div>`;
+}
+
+function renderCover(){
+  return `
+  <aside class="cover">
+    <div>
+      <div class="cover-title serif">나의 가계부</div>
+      <div class="cover-sub">${state.monthDate.getFullYear()}년 장부</div>
+    </div>
+    <nav class="nav">
+      <button class="nav-btn ${state.tab === "dashboard" ? "nav-btn-active" : ""}" data-action="nav-dashboard">📋 이번 달 요약</button>
+      <button class="nav-btn ${state.tab === "list" ? "nav-btn-active" : ""}" data-action="nav-list">📑 전체 내역</button>
+      <button class="nav-btn ${state.tab === "budget" ? "nav-btn-active" : ""}" data-action="nav-budget">🎯 예산 설정</button>
+    </nav>
+    <div class="cover-foot">매주 15분, 흐름만 확인해도 충분해요</div>
+  </aside>`;
+}
+
+function renderHeader(){
+  const dotColor = state.apiKey ? "var(--income)" : "var(--stamp)";
+  return `
+  <header class="page-header">
+    <div class="month-nav">
+      <button class="month-btn" data-action="prev-month">←</button>
+      <div class="serif month-label">${state.monthDate.getMonth() + 1}월</div>
+      <button class="month-btn" data-action="next-month">→</button>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <button class="icon-btn-outline" data-action="toggle-settings" title="API 키 설정" style="position:relative;">
+        ⚙️<span style="position:absolute;top:1px;right:1px;width:7px;height:7px;border-radius:50%;background:${dotColor};border:1.5px solid #fff;"></span>
+      </button>
+      <button class="upload-btn" data-action="open-upload">📤 엑셀로 불러오기</button>
+      <button class="add-btn" data-action="open-add">＋ 기록하기</button>
+    </div>
+  </header>`;
+}
+
+function render(){
+  const app = document.getElementById("app");
+  app.innerHTML = `
+    <div class="wrap">
+      ${renderCover()}
+      <main class="page">
+        ${renderHeader()}
+        ${state.tab === "dashboard" ? renderDashboard() : state.tab === "list" ? renderList() : renderBudgetSettings()}
+      </main>
+    </div>
+    ${state.showAdd ? renderAddModal() : ""}
+    ${state.showUpload ? renderUploadModal() : ""}
+    ${state.showSettings ? renderSettingsModal() : ""}
+  `;
+}
+
+/* ============================================================
+   업로드 처리
+============================================================ */
+async function handleFile(file){
+  state.upload.fileName = file.name;
+  state.upload.stage = "parsing";
+  render();
+  try {
+    const parsed = await parseExcelFile(file);
+    if (parsed.length === 0) {
+      state.upload.errorMsg = "표에서 거래 내역을 찾지 못했어요. 날짜/적요/금액 컬럼이 있는 시트인지 확인해주세요.";
+      state.upload.stage = "error"; render(); return;
+    }
+    if (!state.apiKey) {
+      state.upload.rows = parsed.map(r => ({ ...r, category: r.kind === "income" ? "etcin" : "etc" }));
+      state.upload.warn = "API 키가 없어 전체를 '기타'로 분류했어요. 아래에서 하나씩 바꾸거나, 설정에서 API 키를 등록한 뒤 다시 시도해보세요.";
+      state.upload.stage = "review"; render(); return;
+    }
+    state.upload.rows = parsed;
+    state.upload.stage = "classifying"; render();
+    const catMap = await classifyBatch(parsed, state.apiKey);
+    state.upload.rows = parsed.map(r => ({ ...r, category: catMap[r._rowId] || (r.kind === "income" ? "etcin" : "etc") }));
+    state.upload.stage = "review"; render();
+  } catch (e) {
+    console.error(e);
+    state.upload.errorMsg = "파일을 읽는 중 문제가 발생했어요. xlsx/xls/csv 형식인지 확인해주세요.";
+    state.upload.stage = "error"; render();
+  }
+}
+
+/* ============================================================
+   이벤트 위임
+============================================================ */
+function onClick(e){
+  const btn = e.target.closest("[data-action]");
+  if (!btn) return;
+  const action = btn.dataset.action;
+  switch (action) {
+    case "nav-dashboard": state.tab = "dashboard"; render(); break;
+    case "nav-list": state.tab = "list"; render(); break;
+    case "nav-budget": state.tab = "budget"; render(); break;
+    case "prev-month": state.monthDate = new Date(state.monthDate.getFullYear(), state.monthDate.getMonth() - 1, 1); render(); break;
+    case "next-month": state.monthDate = new Date(state.monthDate.getFullYear(), state.monthDate.getMonth() + 1, 1); render(); break;
+    case "open-add": state.addForm = { kind: "expense", category: EXPENSE_CATS[0].id, amount: "", date: todayStr(), memo: "" }; state.showAdd = true; render(); break;
+    case "close-add": state.showAdd = false; render(); break;
+    case "add-kind": {
+      const kind = btn.dataset.kind;
+      state.addForm.kind = kind;
+      state.addForm.category = kind === "expense" ? EXPENSE_CATS[0].id : INCOME_CATS[0].id;
+      render(); break;
+    }
+    case "add-cat": state.addForm.category = btn.dataset.cat; render(); break;
+    case "submit-add": {
+      const amt = Number(state.addForm.amount);
+      if (!amt || amt <= 0) { alert("금액을 입력해주세요"); return; }
+      const tx = { id: uid(), kind: state.addForm.kind, category: state.addForm.category, amount: amt, date: state.addForm.date || todayStr(), memo: (state.addForm.memo || "").trim() };
+      state.transactions = [tx, ...state.transactions];
+      saveTransactions(state.transactions);
+      state.showAdd = false; render(); break;
+    }
+    case "delete-tx": {
+      state.transactions = state.transactions.filter(t => t.id !== btn.dataset.id);
+      saveTransactions(state.transactions);
+      render(); break;
+    }
+    case "open-upload": state.upload = { stage: "select", rows: [], fileName: "", errorMsg: "", warn: "" }; state.showUpload = true; render(); break;
+    case "close-upload": state.showUpload = false; render(); break;
+    case "retry-upload": state.upload.stage = "select"; render(); break;
+    case "confirm-import": {
+      const list = state.upload.rows.filter(r => r.include).map(r => ({ id: uid(), date: r.date, amount: r.amount, kind: r.kind, category: r.category, memo: r.desc }));
+      state.transactions = [...list, ...state.transactions];
+      saveTransactions(state.transactions);
+      state.showUpload = false; render(); break;
+    }
+    case "toggle-settings": state.pendingKeyInput = state.apiKey; state.showSettings = !state.showSettings; render(); break;
+    case "close-settings": state.showSettings = false; render(); break;
+    case "close-upload-open-settings": state.showUpload = false; state.pendingKeyInput = state.apiKey; state.showSettings = true; render(); break;
+    case "toggle-key-visibility": {
+      const input = document.getElementById("settings-key-input");
+      if (input) state.pendingKeyInput = input.value;
+      state.keyVisible = !state.keyVisible;
+      render(); break;
+    }
+    case "save-apikey": {
+      const input = document.getElementById("settings-key-input");
+      const val = (input ? input.value : state.pendingKeyInput || "").trim();
+      if (!val) { alert("API 키를 입력해주세요"); return; }
+      saveApiKey(val); state.apiKey = val; state.pendingKeyInput = val;
+      render(); break;
+    }
+    case "clear-apikey": {
+      if (!confirm("저장된 API 키를 삭제할까요?")) return;
+      clearApiKey(); state.apiKey = ""; state.pendingKeyInput = "";
+      render(); break;
+    }
+  }
+}
+function onChange(e){
+  const t = e.target;
+  if (t.matches && t.matches(".review-cat-select")) {
+    const row = state.upload.rows.find(r => r._rowId === t.dataset.rowid);
+    if (row) row.category = t.value;
+    return;
+  }
+  if (t.matches && t.matches(".review-include-checkbox")) {
+    const row = state.upload.rows.find(r => r._rowId === t.dataset.rowid);
+    if (row) row.include = t.checked;
+    render(); return;
+  }
+  if (t.id === "upload-file-input") {
+    if (t.files && t.files[0]) handleFile(t.files[0]);
+    return;
+  }
+  if (t.id === "add-date") { state.addForm.date = t.value; return; }
+}
+function onInput(e){
+  const t = e.target;
+  if (t.id === "add-amount") { state.addForm.amount = t.value; return; }
+  if (t.id === "add-memo") { state.addForm.memo = t.value; return; }
+  if (t.id === "settings-key-input") { state.pendingKeyInput = t.value; return; }
+}
+function onFocusOut(e){
+  const t = e.target;
+  if (t.matches && t.matches(".budget-input")) {
+    state.budgets[t.dataset.cat] = Number(t.value) || 0;
+    saveBudgets(state.budgets);
+  }
+}
+
+/* ============================================================
+   초기 실행
+============================================================ */
+render();
+const appEl = document.getElementById("app");
+appEl.addEventListener("click", onClick);
+appEl.addEventListener("change", onChange);
+appEl.addEventListener("input", onInput);
+appEl.addEventListener("focusout", onFocusOut);
+</script>
+</body>
+</html>
